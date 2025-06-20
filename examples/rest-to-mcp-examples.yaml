@@ -1,0 +1,38 @@
+server:
+  name: community-governance-rest
+  config:
+    githubToken: "your-github-token"
+    openaiKey: "your-openai-key"
+tools:
+  - name: quick-issue-search
+    description: "快速搜索GitHub Issues"
+    args:
+      - name: keyword
+        description: "搜索关键词"
+        required: true
+      - name: state
+        description: "Issue状态：open, closed, all"
+        required: false
+    requestTemplate:
+      url: "https://api.github.com/search/issues?q={{.args.keyword}}+repo:{{.config.repoOwner}}/{{.config.repoName}}+state:{{.args.state | default \"all\"}}"
+      method: GET
+      headers:
+        - key: Authorization
+          value: "Bearer {{.config.githubToken}}"
+        - key: Accept
+          value: "application/vnd.github+json"
+    responseTemplate:
+      body: |
+        # Issues 搜索结果  
+        
+        关键词: {{.args.keyword}}  
+        
+        {{- range $index, $item := .items }}  
+        ## {{add $index 1}}. {{$item.title}}  
+        
+        - **状态**: {{$item.state}}  
+        - **链接**: [查看详情]({{$item.html_url}})  
+        - **创建时间**: {{$item.created_at}}  
+        - **标签**: {{range $item.labels}}{{.name}} {{end}}  
+        
+        {{- end }}

@@ -1,0 +1,19 @@
+# community-governance-config.yaml
+apiVersion: networking.higress.io/v1
+kind: WasmPlugin
+metadata:
+  name: community-governance-mcp
+  namespace: higress-system
+spec:
+  defaultConfig:
+    server:
+      name: community-governance
+      config:
+        githubToken: "your-github-token"
+        openaiKey: "your-openai-key"
+        imageApiKey: "your-image-api-key"
+        imageApiUrl: "https://api.openai.com/v1/chat/completions"
+        knowledgeDbUrl: "https://your-knowledge-db.com"
+        repoOwner: "alibaba"
+        repoName: "higress"
+  url: oci://your-registry/community-governance-mcp:latest

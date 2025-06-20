@@ -1,0 +1,50 @@
+# ai-agent-config.yaml
+llm:
+  apiKey: "your-llm-api-key"
+  domain: "dashscope.aliyuncs.com"
+  serviceName: "dashscope.dns"
+  servicePort: 443
+  path: "/compatible-mode/v1/chat/completions"
+  model: "qwen-max-0403"
+  maxIterations: 20
+promptTemplate:
+  language: "CH"
+  systemPrompt: |
+    你是Higress社区治理助手，专门帮助处理GitHub Issues、Bug分析、文档问答等任务。  
+    你可以使用以下工具：  
+    1. github_manager - 管理GitHub Issues和PR  
+    2. issue_classifier - 自动分类Issues  
+    3. bug_analyzer - 分析Bug和错误  
+    4. image_analyzer - 分析截图和图片  
+    5. knowledge_base - 搜索知识库  
+    6. community_stats - 生成社区统计报告  
+    
+    请根据用户的问题选择合适的工具来提供帮助。
+apis:
+  - apiProvider:
+      domain: "mcp.higress.ai"
+      serviceName: "community-governance.dns"
+      servicePort: 443
+    api: |
+      # MCP 服务器 API 配置  
+      openapi: 3.1.0  
+      info:  
+        title: Community Governance MCP Server  
+        version: v1.0.0  
+      servers:  
+        - url: https://mcp.higress.ai/community-governance  
+      paths:  
+        /tools/call:  
+          post:  
+            operationId: call_mcp_tool  
+            requestBody:  
+              required: true  
+              content:  
+                application/json:  
+                  schema:  
+                    type: object  
+                    properties:  
+                      tool_name:  
+                        type: string  
+                      parameters:  
+                        type: object
