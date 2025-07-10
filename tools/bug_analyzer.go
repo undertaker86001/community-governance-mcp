@@ -3,12 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"strings"
-	"time"
-
-	"github.com/community-governance-mcp-higress/internal/agent"
+	"github.com/community-governance-mcp-higress/internal/model"
 	"github.com/community-governance-mcp-higress/internal/openai"
+	"strings"
 )
 
 // BugAnalyzer Bug分析器
@@ -24,7 +21,7 @@ func NewBugAnalyzer(apiKey string) *BugAnalyzer {
 }
 
 // AnalyzeBug 分析Bug
-func (b *BugAnalyzer) AnalyzeBug(stackTrace string, environment string, version string) (*agent.BugAnalysisResult, error) {
+func (b *BugAnalyzer) AnalyzeBug(stackTrace string, environment string, version string) (*model.BugAnalysisResult, error) {
 	// 检测信息完整性
 	missingInfo := b.detectMissingInformation(stackTrace, environment)
 	if len(missingInfo) > 0 {
@@ -50,8 +47,8 @@ func (b *BugAnalyzer) AnalyzeBug(stackTrace string, environment string, version 
 }
 
 // analyzeBug 分析Bug
-func (b *BugAnalyzer) analyzeBug(stackTrace string, environment string, version string) *agent.BugAnalysisResult {
-	analysis := &agent.BugAnalysisResult{
+func (b *BugAnalyzer) analyzeBug(stackTrace string, environment string, version string) *model.BugAnalysisResult {
+	analysis := &model.BugAnalysisResult{
 		ErrorType:  b.classifyError(stackTrace),
 		Severity:   b.determineSeverity(stackTrace),
 		RootCause:  b.analyzeRootCause(stackTrace),
@@ -237,8 +234,8 @@ func (b *BugAnalyzer) detectMissingInformation(stackTrace string, environment st
 }
 
 // generateBasicAnalysis 生成基础分析
-func (b *BugAnalyzer) generateBasicAnalysis(stackTrace string, environment string, version string, missingInfo []string) *agent.BugAnalysisResult {
-	analysis := &agent.BugAnalysisResult{
+func (b *BugAnalyzer) generateBasicAnalysis(stackTrace string, environment string, version string, missingInfo []string) *model.BugAnalysisResult {
+	analysis := &model.BugAnalysisResult{
 		ErrorType: "未知错误",
 		Severity:  "medium",
 		RootCause: "由于信息不完整，无法进行详细分析",
@@ -264,7 +261,7 @@ func (b *BugAnalyzer) generateBasicAnalysis(stackTrace string, environment strin
 }
 
 // aiAnalyzeBug AI分析Bug
-func (b *BugAnalyzer) aiAnalyzeBug(ctx context.Context, stackTrace string, environment string, version string) (*agent.BugAnalysisResult, error) {
+func (b *BugAnalyzer) aiAnalyzeBug(ctx context.Context, stackTrace string, environment string, version string) (*model.BugAnalysisResult, error) {
 	prompt := fmt.Sprintf(`请分析以下错误信息，并提供详细的分析结果：
 
 环境信息：%s
@@ -285,7 +282,7 @@ func (b *BugAnalyzer) aiAnalyzeBug(ctx context.Context, stackTrace string, envir
 	}
 
 	// 解析AI响应
-	analysis := &agent.BugAnalysisResult{
+	analysis := &model.BugAnalysisResult{
 		ErrorType:  "AI分析结果",
 		Severity:   "medium",
 		RootCause:  "AI分析的根本原因",

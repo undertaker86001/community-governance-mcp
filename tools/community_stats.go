@@ -1,17 +1,13 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
-	"github.com/community-governance-mcp-higress/internal/agent"
-	"github.com/higress-group/wasm-go/pkg/mcp/server"
-	"github.com/higress-group/wasm-go/pkg/mcp/utils"
+	"github.com/community-governance-mcp-higress/internal/model"
+	"math/rand"
 )
 
 // CommunityStats 社区统计工具
@@ -31,11 +27,11 @@ func NewCommunityStats(githubToken string) *CommunityStats {
 }
 
 // GetCommunityStats 获取社区统计信息
-func (c *CommunityStats) GetCommunityStats(owner string, repo string, period string) (*agent.CommunityStats, error) {
-	stats := &agent.CommunityStats{
+func (c *CommunityStats) GetCommunityStats(owner string, repo string, period string) (*model.CommunityStats, error) {
+	stats := &model.CommunityStats{
 		Period:          period,
-		TopContributors: []agent.Contributor{},
-		ActivityTrend:   []agent.ActivityData{},
+		TopContributors: []model.Contributor{},
+		ActivityTrend:   []model.ActivityData{},
 		Metadata:        make(map[string]interface{}),
 	}
 
@@ -181,7 +177,7 @@ func (c *CommunityStats) getPRStats(owner string, repo string) (*PRStats, error)
 }
 
 // getContributors 获取贡献者信息
-func (c *CommunityStats) getContributors(owner string, repo string) ([]agent.Contributor, error) {
+func (c *CommunityStats) getContributors(owner string, repo string) ([]model.Contributor, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contributors?per_page=10", owner, repo)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -209,13 +205,13 @@ func (c *CommunityStats) getContributors(owner string, repo string) ([]agent.Con
 		return nil, err
 	}
 
-	var result []agent.Contributor
+	var result []model.Contributor
 	for _, contributor := range contributors {
 		username, _ := contributor["login"].(string)
 		avatarURL, _ := contributor["avatar_url"].(string)
 		contributions, _ := contributor["contributions"].(float64)
 
-		result = append(result, agent.Contributor{
+		result = append(result, model.Contributor{
 			Username:      username,
 			AvatarURL:     avatarURL,
 			Contributions: int(contributions),
@@ -227,72 +223,55 @@ func (c *CommunityStats) getContributors(owner string, repo string) ([]agent.Con
 }
 
 // getActivityTrend 获取活跃度趋势
-func (c *CommunityStats) getActivityTrend(owner string, repo string, period string) ([]agent.ActivityData, error) {
-	// 计算时间范围
-	days := 30
-	if strings.HasSuffix(period, "d") {
-		if d, err := strconv.Atoi(strings.TrimSuffix(period, "d")); err == nil {
-			days = d
-		}
-	}
+func (c *CommunityStats) getActivityTrend(owner string, repo string, period string) ([]model.ActivityData, error) {
+	// 这里可以添加更复杂的活跃度趋势计算
+	// 目前返回模拟数据
+	var trend []model.ActivityData
 
-	var trend []agent.ActivityData
-	endDate := time.Now()
-	startDate := endDate.AddDate(0, 0, -days)
-
-	// 生成日期范围
-	for d := startDate; d.Before(endDate) || d.Equal(endDate); d = d.AddDate(0, 0, 1) {
-		trend = append(trend, agent.ActivityData{
-			Date:     d.Format("2006-01-02"),
-			Issues:   0,
-			PRs:      0,
-			Comments: 0,
+	// 生成最近7天的数据
+	for i := 6; i >= 0; i-- {
+		date := time.Now().AddDate(0, 0, -i)
+		trend = append(trend, model.ActivityData{
+			Date:     date.Format("2006-01-02"),
+			Issues:   rand.Intn(10) + 1,
+			PRs:      rand.Intn(5) + 1,
+			Comments: rand.Intn(20) + 5,
 		})
-	}
-
-	// 这里可以添加实际的GitHub API调用来获取每日活动数据
-	// 由于API限制，这里使用模拟数据
-	for i := range trend {
-		trend[i].Issues = 1 + i%3
-		trend[i].PRs = i % 2
-		trend[i].Comments = 2 + i%5
 	}
 
 	return trend, nil
 }
 
 // calculateHealthScore 计算社区健康度
-func (c *CommunityStats) calculateHealthScore(stats *agent.CommunityStats) float64 {
+func (c *CommunityStats) calculateHealthScore(stats *model.CommunityStats) float64 {
+	// 简单的健康度计算算法
 	score := 0.0
 
-	// 基于Issue处理效率
+	// Issue响应率
 	if stats.TotalIssues > 0 {
-		issueResolutionRate := float64(stats.ClosedIssues) / float64(stats.TotalIssues)
-		score += issueResolutionRate * 0.3
+		responseRate := float64(stats.ClosedIssues) / float64(stats.TotalIssues)
+		score += responseRate * 0.3
 	}
 
-	// 基于PR合并率
+	// PR合并率
 	if stats.TotalPRs > 0 {
-		prMergeRate := float64(stats.MergedPRs) / float64(stats.TotalPRs)
-		score += prMergeRate * 0.3
+		mergeRate := float64(stats.MergedPRs) / float64(stats.TotalPRs)
+		score += mergeRate * 0.3
 	}
 
-	// 基于贡献者数量
-	contributorScore := float64(stats.Contributors) / 100.0
-	if contributorScore > 1.0 {
-		contributorScore = 1.0
-	}
-	score += contributorScore * 0.2
-
-	// 基于活跃度趋势
-	if len(stats.ActivityTrend) > 0 {
-		recentActivity := 0
-		for i := len(stats.ActivityTrend) - 7; i < len(stats.ActivityTrend); i++ {
-			if i >= 0 {
-				recentActivity += stats.ActivityTrend[i].Issues + stats.ActivityTrend[i].PRs
-			}
+	// 贡献者活跃度
+	if stats.Contributors > 0 {
+		contributorScore := float64(stats.Contributors) / 100.0 // 假设100个贡献者为满分
+		if contributorScore > 1.0 {
+			contributorScore = 1.0
 		}
-		activityScore := float64(recentActivity) / 50.0
+		score += contributorScore * 0.2
+	}
+
+	// 活跃度趋势
+	if len(stats.ActivityTrend) > 0 {
+		recentActivity := stats.ActivityTrend[len(stats.ActivityTrend)-1]
+		activityScore := float64(recentActivity.Issues+recentActivity.PRs+recentActivity.Comments) / 50.0
 		if activityScore > 1.0 {
 			activityScore = 1.0
 		}
@@ -364,16 +343,22 @@ func (c *CommunityStats) GetRecentActivity(owner string, repo string, days int) 
 	}
 
 	// 过滤最近的活动
-	cutoffTime := time.Now().AddDate(0, 0, -days)
 	var recentEvents []map[string]interface{}
+	cutoffTime := time.Now().AddDate(0, 0, -days)
 
 	for _, event := range events {
-		if createdAt, ok := event["created_at"].(string); ok {
-			if eventTime, err := time.Parse(time.RFC3339, createdAt); err == nil {
-				if eventTime.After(cutoffTime) {
-					recentEvents = append(recentEvents, event)
-				}
-			}
+		createdAt, ok := event["created_at"].(string)
+		if !ok {
+			continue
+		}
+
+		eventTime, err := time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			continue
+		}
+
+		if eventTime.After(cutoffTime) {
+			recentEvents = append(recentEvents, event)
 		}
 	}
 

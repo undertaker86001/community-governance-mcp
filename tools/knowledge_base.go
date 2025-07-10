@@ -6,187 +6,281 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/community-governance-mcp-higress/config"
-	"github.com/community-governance-mcp-higress/internal/agent"
-	"github.com/community-governance-mcp-higress/utils"
-	"github.com/higress-group/wasm-go/pkg/mcp/server"
+	"github.com/community-governance-mcp-higress/internal/model"
+	"github.com/community-governance-mcp-higress/internal/openai"
 )
 
+// KnowledgeBase 知识库工具
 type KnowledgeBase struct {
-	Query      string `json:"query" jsonschema_description:"搜索查询内容" jsonschema:"example=如何配置Higress网关"`
-	SearchType string `json:"search_type" jsonschema_description:"搜索类型：docs, issues, best_practices, all" jsonschema:"example=docs"`
-	Language   string `json:"language,omitempty" jsonschema_description:"返回结果的语言" jsonschema:"example=zh"`
+	openaiClient *openai.Client
+	documents    []model.Document
 }
 
-func (t KnowledgeBase) Description() string {
-	return `知识库搜索工具，支持搜索Higress官方文档、历史Issues、最佳实践等内容，为用户提供准确的技术支持。`
+// NewKnowledgeBase 创建新的知识库
+func NewKnowledgeBase(apiKey string) *KnowledgeBase {
+	return &KnowledgeBase{
+		openaiClient: openai.NewClient(apiKey, "gpt-4o"),
+		documents:    []model.Document{},
+	}
 }
 
-func (t KnowledgeBase) InputSchema() map[string]any {
-	return server.ToInputSchema(&KnowledgeBase{})
+// AddDocument 添加文档到知识库
+func (kb *KnowledgeBase) AddDocument(doc model.Document) {
+	kb.documents = append(kb.documents, doc)
 }
 
-func (t KnowledgeBase) Create(params []byte) server.Tool {
-	kb := &KnowledgeBase{
-		SearchType: "all",
-		Language:   "zh",
-	}
-	json.Unmarshal(params, kb)
-	return kb
-}
-
-func (t KnowledgeBase) Call(ctx server.HttpContext, s server.Server) error {
-	serverConfig := &config.CommunityGovernanceConfig{}
-	s.GetConfig(serverConfig)
-
-	var results []string
-
-	// 根据搜索类型执行不同的搜索策略
-	switch t.SearchType {
-	case "docs":
-		docResults := t.searchDocumentation()
-		results = append(results, docResults...)
-	case "issues":
-		issueResults, err := t.searchIssues(ctx, serverConfig)
-		if err == nil {
-			results = append(results, issueResults...)
-		}
-	case "best_practices":
-		practiceResults := t.searchBestPractices()
-		results = append(results, practiceResults...)
-	default:
-		// 搜索所有类型
-		docResults := t.searchDocumentation()
-		results = append(results, docResults...)
-
-		issueResults, err := t.searchIssues(ctx, serverConfig)
-		if err == nil {
-			results = append(results, issueResults...)
-		}
-
-		practiceResults := t.searchBestPractices()
-		results = append(results, practiceResults...)
+// SearchKnowledge 搜索知识库
+func (kb *KnowledgeBase) SearchKnowledge(query string, maxResults int) (*model.KnowledgeSearchResult, error) {
+	if len(kb.documents) == 0 {
+		return &model.KnowledgeSearchResult{
+			Query:     query,
+			Results:   []model.SearchResult{},
+			TotalHits: 0,
+		}, nil
 	}
 
-	// 格式化搜索结果
-	formattedResults := t.formatSearchResults(results)
-
-	utils.SendMCPToolTextResult(ctx, "知识库搜索", formattedResults, true)
-	return nil
-}
-
-func (t KnowledgeBase) searchDocumentation() []string {
-	var results []string
-
-	query := strings.ToLower(t.Query)
-
-	// 基于关键词匹配的文档搜索
-	docSections := map[string]string{
-		"安装部署":   "Higress支持Docker和Kubernetes两种部署方式，详见官方文档安装指南。",
-		"配置管理":   "Higress使用YAML格式进行配置，支持动态配置更新。",
-		"插件开发":   "Higress支持WASM插件开发，提供Go、Rust、JavaScript等语言SDK。",
-		"AI网关":   "Higress AI网关支持多种LLM提供商，包括OpenAI、Claude、Qwen等。",
-		"MCP服务器": "Higress支持托管MCP服务器，为AI Agent提供工具调用能力。",
-		"故障排查":   "常见问题包括网络连接、配置错误、权限问题等。",
-	}
-
-	for section, content := range docSections {
-		if strings.Contains(query, strings.ToLower(section)) {
-			results = append(results, fmt.Sprintf("**%s**: %s", section, content))
-		}
-	}
-
-	return results
-}
-
-func (t KnowledgeBase) searchIssues(ctx server.HttpContext, config *config.CommunityGovernanceConfig) ([]string, error) {
-	if config.GitHubToken == "" {
-		return []string{"GitHub token未配置，无法搜索Issues"}, nil
-	}
-
-	// 构建GitHub搜索API请求
-	searchURL := fmt.Sprintf("https://api.github.com/search/issues?q=%s+repo:%s/%s",
-		t.Query, config.RepoOwner, config.RepoName)
-
-	headers := map[string]string{
-		"Authorization": "Bearer " + config.GitHubToken,
-		"Accept":        "application/vnd.github+json",
-	}
-
-	response, err := utils.SendHTTPRequest(ctx, "GET", searchURL, headers, "")
+	// 使用AI进行语义搜索
+	results, err := kb.semanticSearch(query, maxResults)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("语义搜索失败: %w", err)
+	}
+
+	return &model.KnowledgeSearchResult{
+		Query:     query,
+		Results:   results,
+		TotalHits: len(results),
+	}, nil
+}
+
+// semanticSearch 语义搜索
+func (kb *KnowledgeBase) semanticSearch(query string, maxResults int) ([]model.SearchResult, error) {
+	// 构建搜索提示
+	prompt := kb.buildSearchPrompt(query, maxResults)
+
+	// 使用AI进行搜索
+	response, err := kb.openaiClient.GenerateText(context.Background(), prompt, 800, 0.3)
+	if err != nil {
+		return nil, fmt.Errorf("AI搜索失败: %w", err)
 	}
 
 	// 解析搜索结果
-	var searchResult map[string]interface{}
-	if err := json.Unmarshal([]byte(response), &searchResult); err != nil {
-		return nil, err
-	}
+	results := kb.parseSearchResults(response, query)
 
-	var results []string
-	items, ok := searchResult["items"].([]interface{})
-	if !ok {
-		return results, nil
-	}
-
-	for i, item := range items {
-		if i >= 5 { // 限制返回前5个结果
-			break
-		}
-
-		issue := item.(map[string]interface{})
-		title := issue["title"].(string)
-		url := issue["html_url"].(string)
-		state := issue["state"].(string)
-
-		results = append(results, fmt.Sprintf("- [%s](%s) - 状态: %s", title, url, state))
+	// 限制结果数量
+	if len(results) > maxResults {
+		results = results[:maxResults]
 	}
 
 	return results, nil
 }
 
-func (t KnowledgeBase) searchBestPractices() []string {
-	var results []string
-
-	query := strings.ToLower(t.Query)
-
-	// 最佳实践知识库
-	practices := map[string]string{
-		"性能优化": "建议启用缓存、配置合适的连接池大小、使用流式处理。",
-		"安全配置": "启用HTTPS、配置WAF防护、使用JWT认证、设置访问控制。",
-		"监控告警": "配置Prometheus指标、设置健康检查、启用访问日志。",
-		"高可用":  "部署多实例、配置负载均衡、设置故障转移。",
-		"插件开发": "遵循WASM插件开发规范、进行充分测试、注意内存管理。",
+// buildSearchPrompt 构建搜索提示
+func (kb *KnowledgeBase) buildSearchPrompt(query string, maxResults int) string {
+	// 构建文档内容
+	var docContent strings.Builder
+	for i, doc := range kb.documents {
+		docContent.WriteString(fmt.Sprintf("文档%d:\n标题: %s\n内容: %s\n\n", i+1, doc.Title, doc.Content))
 	}
 
-	for practice, content := range practices {
-		if strings.Contains(query, strings.ToLower(practice)) {
-			results = append(results, fmt.Sprintf("**%s最佳实践**: %s", practice, content))
+	return fmt.Sprintf(`请从以下知识库文档中搜索与查询最相关的内容：
+
+查询: %s
+
+知识库文档:
+%s
+
+请返回最相关的%d个结果，格式如下：
+{
+  "results": [
+    {
+      "document_id": "文档ID",
+      "title": "文档标题",
+      "content": "相关内容片段",
+      "relevance_score": 0.95,
+      "snippet": "匹配的文本片段"
+    }
+  ]
+}`, query, docContent.String(), maxResults)
+}
+
+// parseSearchResults 解析搜索结果
+func (kb *KnowledgeBase) parseSearchResults(response string, query string) []model.SearchResult {
+	var results []model.SearchResult
+
+	// 尝试解析JSON响应
+	if strings.Contains(response, "{") && strings.Contains(response, "}") {
+		start := strings.Index(response, "{")
+		end := strings.LastIndex(response, "}") + 1
+		if start >= 0 && end > start {
+			jsonStr := response[start:end]
+
+			var result map[string]interface{}
+			if err := json.Unmarshal([]byte(jsonStr), &result); err == nil {
+				if resultsArray, ok := result["results"].([]interface{}); ok {
+					for _, item := range resultsArray {
+						if resultMap, ok := item.(map[string]interface{}); ok {
+							searchResult := model.SearchResult{
+								DocumentID:     getStringFromMap(resultMap, "document_id"),
+								Title:          getStringFromMap(resultMap, "title"),
+								Content:        getStringFromMap(resultMap, "content"),
+								RelevanceScore: getFloatFromMap(resultMap, "relevance_score"),
+								Snippet:        getStringFromMap(resultMap, "snippet"),
+							}
+							results = append(results, searchResult)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 如果没有解析到JSON，使用简单的文本匹配
+	if len(results) == 0 {
+		results = kb.fallbackTextSearch(query)
+	}
+
+	return results
+}
+
+// fallbackTextSearch 备用文本搜索
+func (kb *KnowledgeBase) fallbackTextSearch(query string) []model.SearchResult {
+	var results []model.SearchResult
+	query = strings.ToLower(query)
+
+	for i, doc := range kb.documents {
+		content := strings.ToLower(doc.Content)
+		title := strings.ToLower(doc.Title)
+
+		// 简单的关键词匹配
+		relevance := 0.0
+		if strings.Contains(content, query) || strings.Contains(title, query) {
+			relevance = 0.8
+		}
+
+		// 检查部分匹配
+		words := strings.Fields(query)
+		for _, word := range words {
+			if strings.Contains(content, word) || strings.Contains(title, word) {
+				relevance += 0.2
+			}
+		}
+
+		if relevance > 0.0 {
+			// 生成片段
+			snippet := kb.generateSnippet(doc.Content, query)
+
+			results = append(results, model.SearchResult{
+				DocumentID:     fmt.Sprintf("doc_%d", i),
+				Title:          doc.Title,
+				Content:        doc.Content,
+				RelevanceScore: relevance,
+				Snippet:        snippet,
+			})
 		}
 	}
 
 	return results
 }
 
-func (t KnowledgeBase) formatSearchResults(results []string) string {
-	if len(results) == 0 {
-		return fmt.Sprintf("未找到与 \"%s\" 相关的内容。建议：\n1. 检查关键词拼写\n2. 尝试使用更通用的关键词\n3. 查看官方文档", t.Query)
+// generateSnippet 生成文本片段
+func (kb *KnowledgeBase) generateSnippet(content string, query string) string {
+	// 简单的片段生成
+	words := strings.Fields(query)
+	for _, word := range words {
+		if idx := strings.Index(strings.ToLower(content), strings.ToLower(word)); idx != -1 {
+			start := idx - 50
+			if start < 0 {
+				start = 0
+			}
+			end := idx + 100
+			if end > len(content) {
+				end = len(content)
+			}
+			return content[start:end] + "..."
+		}
 	}
 
-	var formatted strings.Builder
-	formatted.WriteString(fmt.Sprintf("# 知识库搜索结果\n\n搜索关键词：%s\n\n", t.Query))
-
-	for i, result := range results {
-		formatted.WriteString(fmt.Sprintf("%d. %s\n\n", i+1, result))
+	// 如果没有找到匹配，返回前100个字符
+	if len(content) > 100 {
+		return content[:100] + "..."
 	}
-
-	formatted.WriteString("---\n\n如需更多帮助，请访问 [Higress官方文档](https://higress.cn/docs/)")
-
-	return formatted.String()
+	return content
 }
 
-// NewKnowledgeBase 创建知识库管理器
-func NewKnowledgeBase(storagePath string) *KnowledgeBase {
-	return &KnowledgeBase{}
+// GetDocument 获取文档
+func (kb *KnowledgeBase) GetDocument(documentID string) (*model.Document, error) {
+	for _, doc := range kb.documents {
+		if doc.ID == documentID {
+			return &doc, nil
+		}
+	}
+	return nil, fmt.Errorf("文档未找到: %s", documentID)
+}
+
+// UpdateDocument 更新文档
+func (kb *KnowledgeBase) UpdateDocument(documentID string, updates model.Document) error {
+	for i, doc := range kb.documents {
+		if doc.ID == documentID {
+			kb.documents[i] = updates
+			return nil
+		}
+	}
+	return fmt.Errorf("文档未找到: %s", documentID)
+}
+
+// DeleteDocument 删除文档
+func (kb *KnowledgeBase) DeleteDocument(documentID string) error {
+	for i, doc := range kb.documents {
+		if doc.ID == documentID {
+			kb.documents = append(kb.documents[:i], kb.documents[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("文档未找到: %s", documentID)
+}
+
+// GetDocumentCount 获取文档数量
+func (kb *KnowledgeBase) GetDocumentCount() int {
+	return len(kb.documents)
+}
+
+// GetDocuments 获取所有文档
+func (kb *KnowledgeBase) GetDocuments() []model.Document {
+	return kb.documents
+}
+
+// ClearDocuments 清空所有文档
+func (kb *KnowledgeBase) ClearDocuments() {
+	kb.documents = []model.Document{}
+}
+
+// ExportDocuments 导出文档
+func (kb *KnowledgeBase) ExportDocuments() ([]byte, error) {
+	return json.Marshal(kb.documents)
+}
+
+// ImportDocuments 导入文档
+func (kb *KnowledgeBase) ImportDocuments(data []byte) error {
+	var documents []model.Document
+	if err := json.Unmarshal(data, &documents); err != nil {
+		return fmt.Errorf("解析文档数据失败: %w", err)
+	}
+	kb.documents = documents
+	return nil
+}
+
+// getStringFromMap 安全获取字符串值
+func getStringFromMap(m map[string]interface{}, key string) string {
+	if val, ok := m[key].(string); ok {
+		return val
+	}
+	return ""
+}
+
+// getFloatFromMap 安全获取浮点数值
+func getFloatFromMap(m map[string]interface{}, key string) float64 {
+	if val, ok := m[key].(float64); ok {
+		return val
+	}
+	return 0.0
 }

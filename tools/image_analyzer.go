@@ -2,12 +2,11 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
-	"github.com/community-governance-mcp-higress/internal/agent"
+	"github.com/community-governance-mcp-higress/internal/model"
 	"github.com/community-governance-mcp-higress/internal/openai"
 )
 
@@ -24,7 +23,7 @@ func NewImageAnalyzer(apiKey string) *ImageAnalyzer {
 }
 
 // AnalyzeImage 分析图片
-func (c *ImageAnalyzer) AnalyzeImage(imageURL string) (*agent.ImageAnalysisResult, error) {
+func (c *ImageAnalyzer) AnalyzeImage(imageURL string) (*model.ImageAnalysisResult, error) {
 	// 验证图片URL
 	if err := c.validateImageURL(imageURL); err != nil {
 		return nil, fmt.Errorf("图片URL验证失败: %w", err)
@@ -68,7 +67,7 @@ func (c *ImageAnalyzer) validateImageURL(imageURL string) error {
 }
 
 // aiAnalyzeImage AI分析图片
-func (c *ImageAnalyzer) aiAnalyzeImage(ctx context.Context, imageURL string) (*agent.ImageAnalysisResult, error) {
+func (c *ImageAnalyzer) aiAnalyzeImage(ctx context.Context, imageURL string) (*model.ImageAnalysisResult, error) {
 	prompt := fmt.Sprintf(`请分析以下图片，并提供详细的分析结果：
 
 图片URL: %s
@@ -96,8 +95,8 @@ func (c *ImageAnalyzer) aiAnalyzeImage(ctx context.Context, imageURL string) (*a
 }
 
 // parseAIResponse 解析AI响应
-func (c *ImageAnalyzer) parseAIResponse(response string) *agent.ImageAnalysisResult {
-	analysis := &agent.ImageAnalysisResult{
+func (c *ImageAnalyzer) parseAIResponse(response string) *model.ImageAnalysisResult {
+	analysis := &model.ImageAnalysisResult{
 		Description: "图片分析结果",
 		Issues:      []string{},
 		Suggestions: []string{},
@@ -164,62 +163,69 @@ func (c *ImageAnalyzer) parseAIResponse(response string) *agent.ImageAnalysisRes
 }
 
 // AnalyzeScreenshot 分析截图
-func (c *ImageAnalyzer) AnalyzeScreenshot(imageURL string) (*agent.ImageAnalysisResult, error) {
-	// 专门针对截图的增强分析
-	analysis, err := c.AnalyzeImage(imageURL)
-	if err != nil {
-		return nil, err
+func (c *ImageAnalyzer) AnalyzeScreenshot(imageURL string, contextInfo string) (*model.ImageAnalysisResult, error) {
+	// 验证图片URL
+	if err := c.validateImageURL(imageURL); err != nil {
+		return nil, fmt.Errorf("截图URL验证失败: %w", err)
 	}
 
-	// 添加截图特定的分析
-	analysis.Description += " (截图分析)"
-
-	// 检查是否包含常见的截图问题
-	screenshotIssues := c.detectScreenshotIssues(imageURL)
-	analysis.Issues = append(analysis.Issues, screenshotIssues...)
+	// 使用AI分析截图
+	analysis, err := c.aiAnalyzeScreenshot(context.Background(), imageURL, contextInfo)
+	if err != nil {
+		return nil, fmt.Errorf("AI截图分析失败: %w", err)
+	}
 
 	return analysis, nil
 }
 
-// detectScreenshotIssues 检测截图常见问题
-func (c *ImageAnalyzer) detectScreenshotIssues(imageURL string) []string {
-	var issues []string
+// aiAnalyzeScreenshot AI分析截图
+func (c *ImageAnalyzer) aiAnalyzeScreenshot(ctx context.Context, imageURL string, context string) (*model.ImageAnalysisResult, error) {
+	prompt := fmt.Sprintf(`请分析以下截图，并提供详细的分析结果：
 
-	// 这里可以添加截图特定的检测逻辑
-	// 例如检查图片尺寸、分辨率、内容等
+截图URL: %s
+上下文信息: %s
 
-	// 模拟检测结果
-	issues = append(issues, "建议使用更高分辨率的截图")
-	issues = append(issues, "确保截图包含完整的错误信息")
-	issues = append(issues, "考虑添加文字说明以增强可读性")
+请提供以下格式的分析结果：
+1. 截图描述：详细描述截图中的内容
+2. 发现的问题：识别截图中的错误、异常或问题
+3. 改进建议：提供具体的改进建议和解决方案
 
-	return issues
+请重点关注：
+- 界面布局和设计问题
+- 错误信息和警告
+- 用户体验问题
+- 技术相关问题
+- 与上下文信息的关联`, imageURL, context)
+
+	response, err := c.openaiClient.GenerateText(ctx, prompt, 800, 0.3)
+	if err != nil {
+		return nil, fmt.Errorf("AI截图分析失败: %w", err)
+	}
+
+	// 解析AI响应
+	analysis := c.parseAIResponse(response)
+
+	return analysis, nil
 }
 
 // AnalyzeErrorScreenshot 分析错误截图
-func (c *ImageAnalyzer) AnalyzeErrorScreenshot(imageURL string, errorContext string) (*agent.ImageAnalysisResult, error) {
-	// 结合错误上下文的图片分析
-	analysis, err := c.AnalyzeImage(imageURL)
-	if err != nil {
-		return nil, err
+func (c *ImageAnalyzer) AnalyzeErrorScreenshot(imageURL string, errorContext string) (*model.ImageAnalysisResult, error) {
+	// 验证图片URL
+	if err := c.validateImageURL(imageURL); err != nil {
+		return nil, fmt.Errorf("错误截图URL验证失败: %w", err)
 	}
 
-	// 如果有错误上下文，进行增强分析
-	if errorContext != "" {
-		enhancedAnalysis, err := c.enhanceWithErrorContext(context.Background(), imageURL, errorContext)
-		if err == nil {
-			// 合并分析结果
-			analysis.Description = enhancedAnalysis.Description
-			analysis.Issues = append(analysis.Issues, enhancedAnalysis.Issues...)
-			analysis.Suggestions = append(analysis.Suggestions, enhancedAnalysis.Suggestions...)
-		}
+	// 使用AI分析错误截图
+	analysis, err := c.enhanceWithErrorContext(context.Background(), imageURL, errorContext)
+	if err != nil {
+		return nil, fmt.Errorf("AI错误截图分析失败: %w", err)
 	}
 
 	return analysis, nil
 }
 
-// enhanceWithErrorContext 结合错误上下文进行增强分析
-func (c *ImageAnalyzer) enhanceWithErrorContext(ctx context.Context, imageURL string, errorContext string) (*agent.ImageAnalysisResult, error) {
+// enhanceWithErrorContext 结合错误上下文增强分析
+func (c *ImageAnalyzer) enhanceWithErrorContext(ctx context.Context, imageURL string, errorContext string) (*model.ImageAnalysisResult, error) {
 	prompt := fmt.Sprintf(`请结合错误上下文分析以下图片：
 
 图片URL: %s
