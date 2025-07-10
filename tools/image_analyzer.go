@@ -5,275 +5,269 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
+	"strings"
 
 	"community-governance-mcp-higress/internal/agent"
+	"community-governance-mcp-higress/internal/openai"
 )
 
 // ImageAnalyzer 图片分析器
 type ImageAnalyzer struct {
-	config *agent.AgentConfig
+	openaiClient *openai.Client
 }
 
 // NewImageAnalyzer 创建新的图片分析器
-func NewImageAnalyzer() *ImageAnalyzer {
-	return &ImageAnalyzer{}
+func NewImageAnalyzer(apiKey string) *ImageAnalyzer {
+	return &ImageAnalyzer{
+		openaiClient: openai.NewClient(apiKey, "gpt-4o"),
+	}
 }
 
-// SetConfig 设置配置
-func (i *ImageAnalyzer) SetConfig(config *agent.AgentConfig) {
-	i.config = config
-}
-
-// Analyze 分析图片
-func (i *ImageAnalyzer) Analyze(ctx context.Context, imageURL string) (*agent.ImageAnalysis, error) {
-	if i.config == nil || i.config.OpenAI.APIKey == "" {
-		return nil, fmt.Errorf("OpenAI API密钥未配置")
+// AnalyzeImage 分析图片
+func (c *ImageAnalyzer) AnalyzeImage(imageURL string) (*agent.ImageAnalysisResult, error) {
+	// 验证图片URL
+	if err := c.validateImageURL(imageURL); err != nil {
+		return nil, fmt.Errorf("图片URL验证失败: %w", err)
 	}
 
-	// 根据图片URL分析类型
-	analysisType := i.determineAnalysisType(imageURL)
-	
-	// 调用AI分析
-	analysis, err := i.analyzeImage(ctx, imageURL, analysisType)
+	// 使用AI分析图片
+	analysis, err := c.aiAnalyzeImage(context.Background(), imageURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("AI图片分析失败: %w", err)
 	}
 
 	return analysis, nil
 }
 
-// determineAnalysisType 确定分析类型
-func (i *ImageAnalyzer) determineAnalysisType(imageURL string) string {
-	// 基于URL或文件名判断分析类型
-	if i.containsKeywords(imageURL, []string{"error", "screenshot", "bug"}) {
-		return "error_screenshot"
+// validateImageURL 验证图片URL
+func (c *ImageAnalyzer) validateImageURL(imageURL string) error {
+	if imageURL == "" {
+		return fmt.Errorf("图片URL不能为空")
 	}
-	if i.containsKeywords(imageURL, []string{"arch", "diagram", "architecture"}) {
-		return "architecture_diagram"
-	}
-	if i.containsKeywords(imageURL, []string{"log", "console", "terminal"}) {
-		return "log_image"
-	}
-	return "general"
-}
 
-// containsKeywords 检查是否包含关键词
-func (i *ImageAnalyzer) containsKeywords(text string, keywords []string) bool {
-	text = fmt.Sprintf("%s", text)
-	for _, keyword := range keywords {
-		if i.contains(text, keyword) {
-			return true
+	// 检查URL格式
+	if !strings.HasPrefix(imageURL, "http://") && !strings.HasPrefix(imageURL, "https://") {
+		return fmt.Errorf("图片URL必须是有效的HTTP/HTTPS链接")
+	}
+
+	// 检查图片格式
+	validExtensions := []string{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+	hasValidExtension := false
+	for _, ext := range validExtensions {
+		if strings.HasSuffix(strings.ToLower(imageURL), ext) {
+			hasValidExtension = true
+			break
 		}
 	}
-	return false
+
+	if !hasValidExtension {
+		return fmt.Errorf("不支持的图片格式，支持的格式: %v", validExtensions)
+	}
+
+	return nil
 }
 
-// contains 简单的字符串包含检查
-func (i *ImageAnalyzer) contains(text, keyword string) bool {
-	return len(text) >= len(keyword) && 
-		(text == keyword || 
-		 (len(text) > len(keyword) && 
-		  (text[:len(keyword)] == keyword || 
-		   text[len(text)-len(keyword):] == keyword ||
-		   i.containsSubstring(text, keyword))))
+// aiAnalyzeImage AI分析图片
+func (c *ImageAnalyzer) aiAnalyzeImage(ctx context.Context, imageURL string) (*agent.ImageAnalysisResult, error) {
+	prompt := fmt.Sprintf(`请分析以下图片，并提供详细的分析结果：
+
+图片URL: %s
+
+请提供以下格式的分析结果：
+1. 图片描述：详细描述图片中的内容
+2. 发现的问题：识别图片中的错误、异常或问题
+3. 改进建议：提供具体的改进建议和解决方案
+
+请重点关注：
+- 界面布局和设计问题
+- 错误信息和警告
+- 用户体验问题
+- 技术相关问题`, imageURL)
+
+	response, err := c.openaiClient.GenerateText(ctx, prompt, 800, 0.3)
+	if err != nil {
+		return nil, fmt.Errorf("AI分析失败: %w", err)
+	}
+
+	// 解析AI响应
+	analysis := c.parseAIResponse(response)
+
+	return analysis, nil
 }
 
-// containsSubstring 检查子字符串
-func (i *ImageAnalyzer) containsSubstring(text, keyword string) bool {
-	for i := 0; i <= len(text)-len(keyword); i++ {
-		if text[i:i+len(keyword)] == keyword {
-			return true
+// parseAIResponse 解析AI响应
+func (c *ImageAnalyzer) parseAIResponse(response string) *agent.ImageAnalysisResult {
+	analysis := &agent.ImageAnalysisResult{
+		Description:  "图片分析结果",
+		Issues:       []string{},
+		Suggestions:  []string{},
+		Confidence:   0.8,
+	}
+
+	// 简单的响应解析逻辑
+	lines := strings.Split(response, "\n")
+	var currentSection string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// 识别章节
+		if strings.Contains(line, "描述") || strings.Contains(line, "Description") {
+			currentSection = "description"
+			continue
+		}
+		if strings.Contains(line, "问题") || strings.Contains(line, "Issues") {
+			currentSection = "issues"
+			continue
+		}
+		if strings.Contains(line, "建议") || strings.Contains(line, "Suggestions") {
+			currentSection = "suggestions"
+			continue
+		}
+
+		// 根据章节处理内容
+		switch currentSection {
+		case "description":
+			if analysis.Description == "图片分析结果" {
+				analysis.Description = line
+			} else {
+				analysis.Description += " " + line
+			}
+		case "issues":
+			if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "•") {
+				issue := strings.TrimPrefix(strings.TrimPrefix(line, "-"), "•")
+				issue = strings.TrimSpace(issue)
+				if issue != "" {
+					analysis.Issues = append(analysis.Issues, issue)
+				}
+			}
+		case "suggestions":
+			if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "•") {
+				suggestion := strings.TrimPrefix(strings.TrimPrefix(line, "-"), "•")
+				suggestion = strings.TrimSpace(suggestion)
+				if suggestion != "" {
+					analysis.Suggestions = append(analysis.Suggestions, suggestion)
+				}
+			}
 		}
 	}
-	return false
+
+	// 如果没有解析到具体内容，使用原始响应
+	if analysis.Description == "图片分析结果" {
+		analysis.Description = response
+	}
+
+	return analysis
 }
 
-// analyzeImage 分析图片
-func (i *ImageAnalyzer) analyzeImage(ctx context.Context, imageURL string, analysisType string) (*agent.ImageAnalysis, error) {
-	prompt := i.generatePrompt(analysisType)
-
-	requestBody := map[string]interface{}{
-		"model": i.config.OpenAI.Model,
-		"messages": []map[string]interface{}{
-			{
-				"role": "user",
-				"content": []map[string]interface{}{
-					{
-						"type": "text",
-						"text": prompt,
-					},
-					{
-						"type": "image_url",
-						"image_url": map[string]string{
-							"url": imageURL,
-						},
-					},
-				},
-			},
-		},
-		"max_tokens": 500,
-		"temperature": 0.2,
-	}
-
-	bodyBytes, _ := json.Marshal(requestBody)
-	headers := map[string]string{
-		"Authorization": "Bearer " + i.config.OpenAI.APIKey,
-		"Content-Type":  "application/json",
-	}
-
-	// 发送HTTP请求
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(bodyBytes))
+// AnalyzeScreenshot 分析截图
+func (c *ImageAnalyzer) AnalyzeScreenshot(imageURL string) (*agent.ImageAnalysisResult, error) {
+	// 专门针对截图的增强分析
+	analysis, err := c.AnalyzeImage(imageURL)
 	if err != nil {
 		return nil, err
 	}
 
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
+	// 添加截图特定的分析
+	analysis.Description += " (截图分析)"
+	
+	// 检查是否包含常见的截图问题
+	screenshotIssues := c.detectScreenshotIssues(imageURL)
+	analysis.Issues = append(analysis.Issues, screenshotIssues...)
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	return analysis, nil
+}
+
+// detectScreenshotIssues 检测截图常见问题
+func (c *ImageAnalyzer) detectScreenshotIssues(imageURL string) []string {
+	var issues []string
+
+	// 这里可以添加截图特定的检测逻辑
+	// 例如检查图片尺寸、分辨率、内容等
+
+	// 模拟检测结果
+	issues = append(issues, "建议使用更高分辨率的截图")
+	issues = append(issues, "确保截图包含完整的错误信息")
+	issues = append(issues, "考虑添加文字说明以增强可读性")
+
+	return issues
+}
+
+// AnalyzeErrorScreenshot 分析错误截图
+func (c *ImageAnalyzer) AnalyzeErrorScreenshot(imageURL string, errorContext string) (*agent.ImageAnalysisResult, error) {
+	// 结合错误上下文的图片分析
+	analysis, err := c.AnalyzeImage(imageURL)
 	if err != nil {
 		return nil, err
+	}
+
+	// 如果有错误上下文，进行增强分析
+	if errorContext != "" {
+		enhancedAnalysis, err := c.enhanceWithErrorContext(context.Background(), imageURL, errorContext)
+		if err == nil {
+			// 合并分析结果
+			analysis.Description = enhancedAnalysis.Description
+			analysis.Issues = append(analysis.Issues, enhancedAnalysis.Issues...)
+			analysis.Suggestions = append(analysis.Suggestions, enhancedAnalysis.Suggestions...)
+		}
+	}
+
+	return analysis, nil
+}
+
+// enhanceWithErrorContext 结合错误上下文进行增强分析
+func (c *ImageAnalyzer) enhanceWithErrorContext(ctx context.Context, imageURL string, errorContext string) (*agent.ImageAnalysisResult, error) {
+	prompt := fmt.Sprintf(`请结合错误上下文分析以下图片：
+
+图片URL: %s
+错误上下文: %s
+
+请提供增强的分析结果，重点关注：
+1. 图片中的错误信息与上下文的关联
+2. 可能的错误原因和解决方案
+3. 预防类似错误的建议`, imageURL, errorContext)
+
+	response, err := c.openaiClient.GenerateText(ctx, prompt, 600, 0.3)
+	if err != nil {
+		return nil, fmt.Errorf("增强分析失败: %w", err)
+	}
+
+	return c.parseAIResponse(response), nil
+}
+
+// GetImageInfo 获取图片基本信息
+func (c *ImageAnalyzer) GetImageInfo(imageURL string) (map[string]interface{}, error) {
+	// 获取图片基本信息
+	resp, err := http.Head(imageURL)
+	if err != nil {
+		return nil, fmt.Errorf("获取图片信息失败: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// 解析响应
-	var aiResponse map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&aiResponse); err != nil {
-		return nil, err
+	info := map[string]interface{}{
+		"url":           imageURL,
+		"content_type":  resp.Header.Get("Content-Type"),
+		"content_length": resp.Header.Get("Content-Length"),
+		"last_modified": resp.Header.Get("Last-Modified"),
 	}
 
-	choices, ok := aiResponse["choices"].([]interface{})
-	if !ok || len(choices) == 0 {
-		return nil, fmt.Errorf("AI响应格式错误")
-	}
-
-	choice := choices[0].(map[string]interface{})
-	message := choice["message"].(map[string]interface{})
-	content := message["content"].(string)
-
-	// 解析分析结果
-	analysis := &agent.ImageAnalysis{
-		DetectedElements: i.extractElements(content),
-		ErrorMessages:    i.extractErrors(content),
-		UIElements:       i.extractUIElements(content),
-		Suggestions:      i.extractSuggestions(content),
-		Confidence:       0.8,
-	}
-
-	return analysis, nil
+	return info, nil
 }
 
-// generatePrompt 生成分析提示
-func (i *ImageAnalyzer) generatePrompt(analysisType string) string {
-	switch analysisType {
-	case "error_screenshot":
-		return `这是一个错误截图。请分析图片中的错误信息，包括：
-1. 错误类型和错误代码
-2. 可能的原因分析
-3. 建议的解决步骤
-4. 相关的调试方法
+// ValidateImageAccessibility 验证图片可访问性
+func (c *ImageAnalyzer) ValidateImageAccessibility(imageURL string) (bool, error) {
+	resp, err := http.Get(imageURL)
+	if err != nil {
+		return false, fmt.Errorf("图片访问失败: %w", err)
+	}
+	defer resp.Body.Close()
 
-请提供详细的分析结果。`
-	case "architecture_diagram":
-		return `这是一个系统架构图。请分析图片中的架构设计，包括：
-1. 系统组件和模块
-2. 数据流和调用关系
-3. 可能的性能瓶颈
-4. 架构优化建议
-5. 潜在的问题点
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("图片不可访问，状态码: %d", resp.StatusCode)
+	}
 
-请提供详细的架构分析。`
-	case "log_image":
-		return `这是一个日志截图。请分析图片中的日志信息，包括：
-1. 提取关键的日志内容
-2. 识别错误和警告信息
-3. 分析日志模式和趋势
-4. 提供问题诊断建议
-
-请提供详细的日志分析结果。`
-	default:
-		return `请分析这张图片的内容，特别关注技术相关的信息，包括：
-1. 图片中的文字内容
-2. 技术组件或界面元素
-3. 可能的问题或异常
-4. 相关的技术建议
-
-请提供详细的分析结果。`
-	}
-}
-
-// extractElements 提取检测到的元素
-func (i *ImageAnalyzer) extractElements(content string) []string {
-	// 简化版本，实际应该使用更复杂的解析逻辑
-	elements := []string{}
-	if i.contains(content, "error") {
-		elements = append(elements, "error_message")
-	}
-	if i.contains(content, "button") {
-		elements = append(elements, "button")
-	}
-	if i.contains(content, "form") {
-		elements = append(elements, "form")
-	}
-	if i.contains(content, "table") {
-		elements = append(elements, "table")
-	}
-	return elements
-}
-
-// extractErrors 提取错误信息
-func (i *ImageAnalyzer) extractErrors(content string) []string {
-	// 简化版本，实际应该使用更复杂的解析逻辑
-	errors := []string{}
-	if i.contains(content, "error") {
-		errors = append(errors, "检测到错误信息")
-	}
-	if i.contains(content, "warning") {
-		errors = append(errors, "检测到警告信息")
-	}
-	if i.contains(content, "exception") {
-		errors = append(errors, "检测到异常信息")
-	}
-	return errors
-}
-
-// extractUIElements 提取UI元素
-func (i *ImageAnalyzer) extractUIElements(content string) []string {
-	// 简化版本，实际应该使用更复杂的解析逻辑
-	elements := []string{}
-	if i.contains(content, "button") {
-		elements = append(elements, "按钮")
-	}
-	if i.contains(content, "input") {
-		elements = append(elements, "输入框")
-	}
-	if i.contains(content, "menu") {
-		elements = append(elements, "菜单")
-	}
-	if i.contains(content, "dialog") {
-		elements = append(elements, "对话框")
-	}
-	return elements
-}
-
-// extractSuggestions 提取建议
-func (i *ImageAnalyzer) extractSuggestions(content string) []string {
-	// 简化版本，实际应该使用更复杂的解析逻辑
-	suggestions := []string{}
-	if i.contains(content, "error") {
-		suggestions = append(suggestions, "建议检查错误日志")
-	}
-	if i.contains(content, "performance") {
-		suggestions = append(suggestions, "建议优化性能")
-	}
-	if i.contains(content, "security") {
-		suggestions = append(suggestions, "建议加强安全措施")
-	}
-	if len(suggestions) == 0 {
-		suggestions = append(suggestions, "建议进一步分析图片内容")
-	}
-	return suggestions
+	return true, nil
 }

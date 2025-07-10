@@ -1,4 +1,4 @@
-# Higress社区治理智能助手配置文件
+# Higress社区治理Agent配置文件
 
 # Agent基础配置
 agent:
@@ -18,21 +18,24 @@ openai:
 deepwiki:
   enabled: true
   endpoint: "https://mcp.deepwiki.com/mcp"
+  api_key: "${DEEPWIKI_API_KEY}"
   timeout: "30s"
   max_retries: 3
+
+# Higress配置
+higress:
+  docs_url: "https://higress.io/docs"
+  repo_owner: "alibaba"
+  repo_name: "higress"
+  cache_duration: "1h"
+  max_concurrent_requests: 10
 
 # GitHub配置
 github:
   token: "${GITHUB_TOKEN}"
-  owner: "alibaba"
-  repo: "higress"
-  webhook_url: ""
-
-# Higress文档配置
-higress:
-  docs_url: "https://higress.io/docs"
-  cache_duration: "1h"
-  max_concurrent_requests: 10
+  api_url: "https://api.github.com"
+  timeout: "30s"
+  max_retries: 3
 
 # 知识库配置
 knowledge:

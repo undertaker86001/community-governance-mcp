@@ -9,38 +9,36 @@ import (
 	"time"
 
 	"community-governance-mcp-higress/internal/agent"
+	"community-governance-mcp-higress/internal/openai"
 )
 
 // BugAnalyzer Bug分析器
 type BugAnalyzer struct {
-	config *agent.AgentConfig
+	openaiClient *openai.Client
 }
 
 // NewBugAnalyzer 创建新的Bug分析器
-func NewBugAnalyzer() *BugAnalyzer {
-	return &BugAnalyzer{}
+func NewBugAnalyzer(apiKey string) *BugAnalyzer {
+	return &BugAnalyzer{
+		openaiClient: openai.NewClient(apiKey, "gpt-4o"),
+	}
 }
 
-// SetConfig 设置配置
-func (b *BugAnalyzer) SetConfig(config *agent.AgentConfig) {
-	b.config = config
-}
-
-// Analyze 分析Bug
-func (b *BugAnalyzer) Analyze(ctx context.Context, stackTrace string, environment string) (*agent.BugAnalysis, error) {
+// AnalyzeBug 分析Bug
+func (b *BugAnalyzer) AnalyzeBug(stackTrace string, environment string, version string) (*agent.BugAnalysisResult, error) {
 	// 检测信息完整性
 	missingInfo := b.detectMissingInformation(stackTrace, environment)
 	if len(missingInfo) > 0 {
 		// 如果有缺失信息，返回基础分析
-		return b.generateBasicAnalysis(stackTrace, environment, missingInfo), nil
+		return b.generateBasicAnalysis(stackTrace, environment, version, missingInfo), nil
 	}
 
 	// 分析错误信息
-	analysis := b.analyzeBug(stackTrace, environment)
+	analysis := b.analyzeBug(stackTrace, environment, version)
 
-	// 如果配置了AI，使用AI进行深度分析
-	if b.config != nil && b.config.OpenAI.APIKey != "" {
-		aiAnalysis, err := b.aiAnalyzeBug(ctx, stackTrace, environment)
+	// 使用AI进行深度分析
+	if b.openaiClient != nil {
+		aiAnalysis, err := b.aiAnalyzeBug(context.Background(), stackTrace, environment, version)
 		if err == nil {
 			// 合并AI分析结果
 			analysis.RootCause = aiAnalysis.RootCause
@@ -53,15 +51,13 @@ func (b *BugAnalyzer) Analyze(ctx context.Context, stackTrace string, environmen
 }
 
 // analyzeBug 分析Bug
-func (b *BugAnalyzer) analyzeBug(stackTrace string, environment string) *agent.BugAnalysis {
-	analysis := &agent.BugAnalysis{
+func (b *BugAnalyzer) analyzeBug(stackTrace string, environment string, version string) *agent.BugAnalysisResult {
+	analysis := &agent.BugAnalysisResult{
 		ErrorType:  b.classifyError(stackTrace),
-		Language:   b.detectLanguage(stackTrace),
 		Severity:   b.determineSeverity(stackTrace),
 		RootCause:  b.analyzeRootCause(stackTrace),
 		Solutions:  b.generateSolutions(stackTrace),
 		Prevention: b.generatePrevention(stackTrace),
-		Confidence: b.calculateConfidence(stackTrace, environment),
 	}
 
 	return analysis
@@ -94,26 +90,6 @@ func (b *BugAnalyzer) classifyError(stackTrace string) string {
 	}
 
 	return "未知错误类型"
-}
-
-// detectLanguage 检测编程语言
-func (b *BugAnalyzer) detectLanguage(stackTrace string) string {
-	stackTrace = strings.ToLower(stackTrace)
-
-	if strings.Contains(stackTrace, "java.lang") || strings.Contains(stackTrace, "exception") {
-		return "java"
-	}
-	if strings.Contains(stackTrace, "panic:") || strings.Contains(stackTrace, "runtime error") {
-		return "go"
-	}
-	if strings.Contains(stackTrace, "traceback") || strings.Contains(stackTrace, "python") {
-		return "python"
-	}
-	if strings.Contains(stackTrace, "error:") || strings.Contains(stackTrace, "at ") {
-		return "javascript"
-	}
-
-	return "unknown"
 }
 
 // determineSeverity 确定严重程度
@@ -200,15 +176,15 @@ func (b *BugAnalyzer) generateSolutions(stackTrace string) []string {
 	}
 
 	if strings.Contains(errorMsg, "parse") || strings.Contains(errorMsg, "syntax") {
-		solutions = append(solutions, "验证配置文件格式和语法")
-		solutions = append(solutions, "检查数据格式是否符合预期")
-		solutions = append(solutions, "使用格式验证工具检查输入数据")
+		solutions = append(solutions, "检查配置文件语法和格式")
+		solutions = append(solutions, "验证输入数据的有效性")
+		solutions = append(solutions, "使用适当的解析器和错误处理")
 	}
 
-	if len(solutions) == 0 {
-		solutions = append(solutions, "查看完整的错误日志获取更多信息")
-		solutions = append(solutions, "检查相关文档和最佳实践")
-		solutions = append(solutions, "搜索类似问题的解决方案")
+	if strings.Contains(errorMsg, "not found") || strings.Contains(errorMsg, "404") {
+		solutions = append(solutions, "检查文件路径或URL是否正确")
+		solutions = append(solutions, "确认资源是否存在且可访问")
+		solutions = append(solutions, "验证配置中的路径设置")
 	}
 
 	return solutions
@@ -220,69 +196,30 @@ func (b *BugAnalyzer) generatePrevention(stackTrace string) []string {
 	errorMsg := strings.ToLower(stackTrace)
 
 	if strings.Contains(errorMsg, "null pointer") || strings.Contains(errorMsg, "nil pointer") {
-		prevention = append(prevention, "在代码审查中重点关注空值检查")
+		prevention = append(prevention, "建立代码审查流程，确保变量正确初始化")
 		prevention = append(prevention, "使用静态分析工具检测潜在的空指针问题")
-		prevention = append(prevention, "建立编码规范，要求显式初始化变量")
+		prevention = append(prevention, "编写单元测试覆盖边界情况")
 	}
 
 	if strings.Contains(errorMsg, "connection") || strings.Contains(errorMsg, "timeout") {
-		prevention = append(prevention, "实施健康检查和监控机制")
-		prevention = append(prevention, "使用连接池和重试机制")
-		prevention = append(prevention, "定期测试网络连接和服务可用性")
+		prevention = append(prevention, "实施网络连接监控和告警机制")
+		prevention = append(prevention, "配置适当的超时和重试策略")
+		prevention = append(prevention, "定期检查网络配置和依赖服务状态")
 	}
 
 	if strings.Contains(errorMsg, "permission") || strings.Contains(errorMsg, "access denied") {
-		prevention = append(prevention, "实施最小权限原则")
-		prevention = append(prevention, "定期审查和更新权限配置")
-		prevention = append(prevention, "使用自动化工具检查权限设置")
+		prevention = append(prevention, "实施最小权限原则，定期审查权限配置")
+		prevention = append(prevention, "使用自动化工具管理权限和访问控制")
+		prevention = append(prevention, "建立权限变更的审批流程")
 	}
 
 	if strings.Contains(errorMsg, "out of memory") || strings.Contains(errorMsg, "oom") {
-		prevention = append(prevention, "设置合理的内存限制和监控")
-		prevention = append(prevention, "定期进行内存使用分析")
-		prevention = append(prevention, "实施资源清理和垃圾回收优化")
-	}
-
-	if strings.Contains(errorMsg, "parse") || strings.Contains(errorMsg, "syntax") {
-		prevention = append(prevention, "使用配置验证工具")
-		prevention = append(prevention, "建立数据格式标准和验证流程")
-		prevention = append(prevention, "实施自动化测试验证配置正确性")
-	}
-
-	if len(prevention) == 0 {
-		prevention = append(prevention, "建立完善的日志记录和监控体系")
-		prevention = append(prevention, "定期进行代码审查和测试")
-		prevention = append(prevention, "建立问题跟踪和知识库")
+		prevention = append(prevention, "设置内存使用监控和告警")
+		prevention = append(prevention, "定期进行内存使用分析和优化")
+		prevention = append(prevention, "实施资源限制和配额管理")
 	}
 
 	return prevention
-}
-
-// calculateConfidence 计算置信度
-func (b *BugAnalyzer) calculateConfidence(stackTrace string, environment string) float64 {
-	confidence := 0.5
-
-	// 基于错误信息的完整性调整置信度
-	if stackTrace != "" {
-		confidence += 0.2
-	}
-	if environment != "" {
-		confidence += 0.1
-	}
-
-	// 基于错误类型的明确性调整置信度
-	errorType := b.classifyError(stackTrace)
-	if errorType != "未知错误类型" {
-		confidence += 0.1
-	}
-
-	// 基于语言的检测结果调整置信度
-	language := b.detectLanguage(stackTrace)
-	if language != "unknown" {
-		confidence += 0.1
-	}
-
-	return confidence
 }
 
 // detectMissingInformation 检测缺失信息
@@ -294,102 +231,71 @@ func (b *BugAnalyzer) detectMissingInformation(stackTrace string, environment st
 	}
 
 	if environment == "" {
-		missingInfo = append(missingInfo, "环境信息（操作系统、版本等）")
+		missingInfo = append(missingInfo, "环境信息")
 	}
 
 	return missingInfo
 }
 
 // generateBasicAnalysis 生成基础分析
-func (b *BugAnalyzer) generateBasicAnalysis(stackTrace string, environment string, missingInfo []string) *agent.BugAnalysis {
-	analysis := &agent.BugAnalysis{
-		ErrorType:  "unknown",
-		Language:   "unknown",
-		Severity:   "medium",
-		RootCause:  "需要更多信息进行分析",
-		Solutions:  []string{"请提供完整的错误堆栈信息"},
-		Prevention: []string{"建立完善的错误报告机制"},
-		Confidence: 0.3,
+func (b *BugAnalyzer) generateBasicAnalysis(stackTrace string, environment string, version string, missingInfo []string) *agent.BugAnalysisResult {
+	analysis := &agent.BugAnalysisResult{
+		ErrorType: "未知错误",
+		Severity:  "medium",
+		RootCause: "由于信息不完整，无法进行详细分析",
+		Solutions: []string{
+			"请提供完整的错误堆栈信息",
+			"提供详细的环境配置信息",
+			"包含相关的日志文件",
+		},
+		Prevention: []string{
+			"建立标准化的错误报告流程",
+			"配置自动化的错误信息收集",
+			"定期进行系统健康检查",
+		},
 	}
 
+	// 如果有一些信息，尝试基础分析
 	if stackTrace != "" {
 		analysis.ErrorType = b.classifyError(stackTrace)
-		analysis.Language = b.detectLanguage(stackTrace)
 		analysis.Severity = b.determineSeverity(stackTrace)
-		analysis.Confidence = 0.5
 	}
 
 	return analysis
 }
 
 // aiAnalyzeBug AI分析Bug
-func (b *BugAnalyzer) aiAnalyzeBug(ctx context.Context, stackTrace string, environment string) (*agent.BugAnalysis, error) {
-	prompt := fmt.Sprintf(`作为一个技术专家，请分析以下 Bug 信息并提供详细的诊断和解决建议：
+func (b *BugAnalyzer) aiAnalyzeBug(ctx context.Context, stackTrace string, environment string, version string) (*agent.BugAnalysisResult, error) {
+	prompt := fmt.Sprintf(`请分析以下错误信息，并提供详细的分析结果：
 
-错误堆栈：%s
 环境信息：%s
+版本信息：%s
+错误堆栈：
+%s
 
-请提供：
-1. 根本原因分析
-2. 详细的解决步骤
-3. 预防措施
-4. 相关的最佳实践`,
-		stackTrace, environment)
+请提供以下格式的分析结果：
+1. 错误类型
+2. 严重程度
+3. 根本原因
+4. 解决方案（3-5条）
+5. 预防措施（3-5条）`, environment, version, stackTrace)
 
-	requestBody := map[string]interface{}{
-		"model": b.config.OpenAI.Model,
-		"messages": []map[string]string{
-			{"role": "user", "content": prompt},
-		},
-		"max_tokens": 500,
-		"temperature": 0.2,
-	}
-
-	bodyBytes, _ := json.Marshal(requestBody)
-	headers := map[string]string{
-		"Authorization": "Bearer " + b.config.OpenAI.APIKey,
-		"Content-Type":  "application/json",
-	}
-
-	// 发送HTTP请求
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(bodyBytes))
+	response, err := b.openaiClient.GenerateText(ctx, prompt, 1000, 0.3)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("AI分析失败: %w", err)
 	}
 
-	for key, value := range headers {
-		req.Header.Set(key, value)
+	// 解析AI响应
+	analysis := &agent.BugAnalysisResult{
+		ErrorType:  "AI分析结果",
+		Severity:   "medium",
+		RootCause:  "AI分析的根本原因",
+		Solutions:  []string{"AI建议的解决方案"},
+		Prevention: []string{"AI建议的预防措施"},
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// 解析响应
-	var aiResponse map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&aiResponse); err != nil {
-		return nil, err
-	}
-
-	choices, ok := aiResponse["choices"].([]interface{})
-	if !ok || len(choices) == 0 {
-		return nil, fmt.Errorf("AI响应格式错误")
-	}
-
-	choice := choices[0].(map[string]interface{})
-	message := choice["message"].(map[string]interface{})
-	content := message["content"].(string)
-
-	// 解析AI分析结果
-	analysis := &agent.BugAnalysis{
-		RootCause:  "AI分析：需要进一步处理",
-		Solutions:  []string{content},
-		Prevention: []string{"基于AI建议实施预防措施"},
-		Confidence: 0.8,
-	}
+	// 这里可以添加更复杂的响应解析逻辑
+	// 目前返回基础结构，实际应用中可以根据AI响应格式进行解析
 
 	return analysis, nil
 }

@@ -15,7 +15,6 @@ import (
 	"community-governance-mcp-higress/internal/agent"
 	"community-governance-mcp-higress/internal/openai"
 	"community-governance-mcp-higress/tools"
-	"community-governance-mcp-higress/config"
 )
 
 // Server HTTP服务器
@@ -46,13 +45,13 @@ func (s *Server) setupRoutes() {
 	// API版本组
 	v1 := s.router.Group("/api/v1")
 	{
-		// 智能问答接口
+		// 处理问题
 		v1.POST("/process", s.handleProcess)
 		
-		// 问题分析接口
+		// 问题分析
 		v1.POST("/analyze", s.handleAnalyze)
 		
-		// 社区统计接口
+		// 社区统计
 		v1.GET("/stats", s.handleStats)
 		
 		// 健康检查
@@ -66,7 +65,7 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/", s.handleRoot)
 }
 
-// handleProcess 处理智能问答请求
+// handleProcess 处理问题请求
 func (s *Server) handleProcess(c *gin.Context) {
 	var request agent.ProcessRequest
 	
@@ -81,7 +80,7 @@ func (s *Server) handleProcess(c *gin.Context) {
 	}
 
 	// 验证请求
-	if err := s.validateProcessRequest(&request); err != nil {
+	if err := s.validateRequest(&request); err != nil {
 		s.logger.WithError(err).Error("请求验证失败")
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "请求验证失败",
@@ -110,11 +109,14 @@ func (s *Server) handleProcess(c *gin.Context) {
 
 // handleAnalyze 处理问题分析请求
 func (s *Server) handleAnalyze(c *gin.Context) {
-	var request agent.AnalyzeRequest
+	var request struct {
+		StackTrace string `json:"stack_trace"`
+		Environment string `json:"environment"`
+		Version    string `json:"version"`
+		ImageURL   string `json:"image_url,omitempty"`
+	}
 	
-	// 解析请求体
 	if err := c.ShouldBindJSON(&request); err != nil {
-		s.logger.WithError(err).Error("请求解析失败")
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "请求格式错误",
 			"message": err.Error(),
@@ -122,13 +124,10 @@ func (s *Server) handleAnalyze(c *gin.Context) {
 		return
 	}
 
-	// 分析问题
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-
-	response, err := s.processor.AnalyzeProblem(ctx, &request)
+	// 使用Bug分析器分析问题
+	bugAnalyzer := tools.NewBugAnalyzer(s.config.OpenAI.APIKey)
+	analysis, err := bugAnalyzer.AnalyzeBug(request.StackTrace, request.Environment, request.Version)
 	if err != nil {
-		s.logger.WithError(err).Error("问题分析失败")
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "问题分析失败",
 			"message": err.Error(),
@@ -136,20 +135,31 @@ func (s *Server) handleAnalyze(c *gin.Context) {
 		return
 	}
 
-	// 返回响应
-	c.JSON(http.StatusOK, response)
+	// 如果有图片，使用图片分析器
+	if request.ImageURL != "" {
+		imageAnalyzer := tools.NewImageAnalyzer(s.config.OpenAI.APIKey)
+		imageAnalysis, err := imageAnalyzer.AnalyzeImage(request.ImageURL)
+		if err == nil {
+			analysis.ImageAnalysis = imageAnalysis
+		}
+	}
+
+	c.JSON(http.StatusOK, analysis)
 }
 
 // handleStats 处理社区统计请求
 func (s *Server) handleStats(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
+	// 获取查询参数
+	period := c.DefaultQuery("period", "30d")
+	repoOwner := c.DefaultQuery("owner", s.config.Higress.RepoOwner)
+	repoName := c.DefaultQuery("repo", s.config.Higress.RepoName)
 
-	stats, err := s.processor.GetCommunityStats(ctx)
+	// 使用社区统计工具
+	statsTool := tools.NewCommunityStats(s.config.GitHub.Token)
+	stats, err := statsTool.GetCommunityStats(repoOwner, repoName, period)
 	if err != nil {
-		s.logger.WithError(err).Error("获取社区统计失败")
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "获取社区统计失败",
+			"error":   "获取统计信息失败",
 			"message": err.Error(),
 		})
 		return
@@ -165,9 +175,9 @@ func (s *Server) handleHealth(c *gin.Context) {
 		"timestamp": time.Now().Unix(),
 		"version":   s.config.Version,
 		"services": gin.H{
-			"deepwiki": s.config.DeepWiki.Enabled,
+			"openai":    "connected",
+			"deepwiki":  s.config.DeepWiki.Enabled,
 			"knowledge": s.config.Knowledge.Enabled,
-			"fusion":   s.config.Fusion.Enabled,
 		},
 	})
 }
@@ -193,20 +203,20 @@ func (s *Server) handleConfig(c *gin.Context) {
 // handleRoot 根路径处理
 func (s *Server) handleRoot(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Higress社区治理智能助手",
+		"message": "Higress社区治理Agent",
 		"version": s.config.Version,
 		"docs":    "/api/v1/",
 		"features": []string{
 			"智能问答",
-			"问题分析",
+			"问题分析", 
 			"社区统计",
 			"知识融合",
 		},
 	})
 }
 
-// validateProcessRequest 验证问答请求
-func (s *Server) validateProcessRequest(request *agent.ProcessRequest) error {
+// validateRequest 验证请求
+func (s *Server) validateRequest(request *agent.ProcessRequest) error {
 	if request.Title == "" {
 		return fmt.Errorf("标题不能为空")
 	}
@@ -270,10 +280,9 @@ func setupLogging(config *agent.AgentConfig) *logrus.Logger {
 	// 设置日志级别
 	level, err := logrus.ParseLevel(config.Logging.Level)
 	if err != nil {
-		logger.SetLevel(logrus.InfoLevel)
-	} else {
-		logger.SetLevel(level)
+		level = logrus.InfoLevel
 	}
+	logger.SetLevel(level)
 	
 	// 设置日志格式
 	if config.Logging.Format == "json" {
@@ -296,17 +305,13 @@ func main() {
 
 	// 设置日志
 	logger := setupLogging(config)
-	logger.Info("启动Higress社区治理智能助手")
+	logger.Info("启动Higress社区治理Agent")
 
-	// 初始化OpenAI客户端
-	openaiClient := openai.NewClient(config.OpenAI)
-	
-	// 初始化处理器
+	// 创建OpenAI客户端
+	openaiClient := openai.NewClient(config.OpenAI.APIKey, config.OpenAI.Model)
+
+	// 创建处理器
 	processor := agent.NewProcessor(openaiClient, config)
-	processor.SetLogger(logger)
-
-	// 加载工具
-	tools.LoadTools(processor)
 
 	// 创建服务器
 	server := NewServer(processor, config)

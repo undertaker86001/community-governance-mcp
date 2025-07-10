@@ -9,15 +9,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"community-governance-mcp-higress/internal/openai"
-	"community-governance-mcp-higress/tools"
 )
 
-// Processor 智能代理处理器
+// Processor Agent处理器
 type Processor struct {
 	openaiClient *openai.Client
 	logger       *logrus.Logger
 	config       *AgentConfig
-	tools        map[string]interface{}
 }
 
 // NewProcessor 创建新的处理器
@@ -26,16 +24,10 @@ func NewProcessor(openaiClient *openai.Client, config *AgentConfig) *Processor {
 		openaiClient: openaiClient,
 		logger:       logrus.New(),
 		config:       config,
-		tools:        make(map[string]interface{}),
 	}
 }
 
-// RegisterTool 注册工具
-func (p *Processor) RegisterTool(name string, tool interface{}) {
-	p.tools[name] = tool
-}
-
-// ProcessQuestion 处理用户问题（智能问答）
+// ProcessQuestion 处理用户问题
 func (p *Processor) ProcessQuestion(ctx context.Context, request *ProcessRequest) (*ProcessResponse, error) {
 	startTime := time.Now()
 	
@@ -219,7 +211,7 @@ func (p *Processor) understandQuestion(ctx context.Context, request *ProcessRequ
 func (p *Processor) determineQuestionType(request *ProcessRequest) QuestionType {
 	// 基于请求类型确定
 	if request.Type != "" {
-		return QuestionType(request.Type)
+		return request.Type
 	}
 
 	// 基于内容分析确定类型
@@ -240,12 +232,6 @@ func (p *Processor) determineQuestionType(request *ProcessRequest) QuestionType 
 		return QuestionTypePR
 	}
 
-	// 检查是否为配置问题
-	if strings.Contains(content, "config") || strings.Contains(title, "config") ||
-		strings.Contains(content, "configuration") || strings.Contains(title, "configuration") {
-		return QuestionTypeConfig
-	}
-
 	// 默认为文本问题
 	return QuestionTypeText
 }
@@ -263,7 +249,7 @@ func (p *Processor) extractTags(request *ProcessRequest) []string {
 	content := strings.ToLower(request.Content + " " + request.Title)
 	
 	// Higress相关标签
-	higressKeywords := []string{"gateway", "plugin", "route", "config", "deployment", "ingress"}
+	higressKeywords := []string{"gateway", "plugin", "route", "config", "deployment"}
 	for _, keyword := range higressKeywords {
 		if strings.Contains(content, keyword) {
 			tags = append(tags, keyword)
@@ -271,7 +257,7 @@ func (p *Processor) extractTags(request *ProcessRequest) []string {
 	}
 
 	// 技术标签
-	techKeywords := []string{"kubernetes", "docker", "helm", "yaml", "json", "go", "java"}
+	techKeywords := []string{"kubernetes", "docker", "helm", "yaml", "json"}
 	for _, keyword := range techKeywords {
 		if strings.Contains(content, keyword) {
 			tags = append(tags, keyword)
@@ -285,14 +271,14 @@ func (p *Processor) extractTags(request *ProcessRequest) []string {
 func (p *Processor) determinePriority(request *ProcessRequest) Priority {
 	// 如果用户指定了优先级，直接使用
 	if request.Priority != "" {
-		return Priority(request.Priority)
+		return request.Priority
 	}
 
 	// 基于关键词确定优先级
 	content := strings.ToLower(request.Content + " " + request.Title)
 	
 	// 紧急关键词
-	urgentKeywords := []string{"urgent", "critical", "broken", "crash", "production", "blocking"}
+	urgentKeywords := []string{"urgent", "critical", "broken", "crash", "production"}
 	for _, keyword := range urgentKeywords {
 		if strings.Contains(content, keyword) {
 			return PriorityUrgent
@@ -300,28 +286,27 @@ func (p *Processor) determinePriority(request *ProcessRequest) Priority {
 	}
 
 	// 高优先级关键词
-	highKeywords := []string{"important", "high", "major", "significant"}
+	highKeywords := []string{"important", "blocking", "issue", "error"}
 	for _, keyword := range highKeywords {
 		if strings.Contains(content, keyword) {
 			return PriorityHigh
 		}
 	}
 
-	// 低优先级关键词
-	lowKeywords := []string{"minor", "low", "nice-to-have", "enhancement"}
-	for _, keyword := range lowKeywords {
+	// 中优先级关键词
+	mediumKeywords := []string{"question", "help", "how", "what"}
+	for _, keyword := range mediumKeywords {
 		if strings.Contains(content, keyword) {
-			return PriorityLow
+			return PriorityMedium
 		}
 	}
 
-	// 默认为普通优先级
-	return PriorityNormal
+	return PriorityLow
 }
 
 // retrieveKnowledge 检索知识
 func (p *Processor) retrieveKnowledge(ctx context.Context, question *Question) ([]KnowledgeItem, error) {
-	sources := make([]KnowledgeItem, 0)
+	var allSources []KnowledgeItem
 
 	// 1. 检索本地知识库
 	if p.config.Knowledge.Enabled {
@@ -329,7 +314,7 @@ func (p *Processor) retrieveKnowledge(ctx context.Context, question *Question) (
 		if err != nil {
 			p.logger.WithError(err).Warn("本地知识库检索失败")
 		} else {
-			sources = append(sources, localSources...)
+			allSources = append(allSources, localSources...)
 		}
 	}
 
@@ -338,101 +323,135 @@ func (p *Processor) retrieveKnowledge(ctx context.Context, question *Question) (
 	if err != nil {
 		p.logger.WithError(err).Warn("Higress文档检索失败")
 	} else {
-		sources = append(sources, higressSources...)
+		allSources = append(allSources, higressSources...)
 	}
 
-	// 3. 检索DeepWiki知识
+	// 3. 检索DeepWiki
 	if p.config.DeepWiki.Enabled {
 		deepwikiSources, err := p.retrieveDeepWiki(ctx, question)
 		if err != nil {
 			p.logger.WithError(err).Warn("DeepWiki检索失败")
 		} else {
-			sources = append(sources, deepwikiSources...)
+			allSources = append(allSources, deepwikiSources...)
 		}
 	}
 
-	// 4. 按相关性排序
-	p.sortByRelevance(sources)
+	// 4. 计算相关性并排序
+	for i := range allSources {
+		allSources[i].Relevance = p.calculateRelevance(question, &allSources[i])
+	}
+	p.sortByRelevance(allSources)
 
-	// 5. 限制来源数量
-	if len(sources) > p.config.Fusion.MaxSources {
-		sources = sources[:p.config.Fusion.MaxSources]
+	// 限制返回数量
+	if len(allSources) > p.config.Fusion.MaxSources {
+		allSources = allSources[:p.config.Fusion.MaxSources]
 	}
 
-	p.logger.WithField("sources_count", len(sources)).Info("知识检索完成")
-	return sources, nil
+	p.logger.WithField("sources_count", len(allSources)).Info("知识检索完成")
+	return allSources, nil
 }
 
 // retrieveLocalKnowledge 检索本地知识库
 func (p *Processor) retrieveLocalKnowledge(ctx context.Context, question *Question) ([]KnowledgeItem, error) {
-	// 这里实现本地知识库检索逻辑
-	// 可以使用向量数据库或简单的关键词匹配
+	// TODO: 实现本地知识库检索
+	// 这里可以集成现有的knowledge_base.go功能
 	return []KnowledgeItem{}, nil
 }
 
 // retrieveHigressDocs 检索Higress文档
 func (p *Processor) retrieveHigressDocs(ctx context.Context, question *Question) ([]KnowledgeItem, error) {
-	// 这里实现Higress文档检索逻辑
-	// 可以调用Higress官方文档API或爬虫
+	// TODO: 实现Higress文档检索
+	// 这里可以调用Higress官方API或爬取文档
 	return []KnowledgeItem{}, nil
 }
 
-// retrieveDeepWiki 检索DeepWiki知识
+// retrieveDeepWiki 检索DeepWiki
 func (p *Processor) retrieveDeepWiki(ctx context.Context, question *Question) ([]KnowledgeItem, error) {
-	// 这里实现DeepWiki检索逻辑
-	// 可以调用DeepWiki MCP服务
+	// TODO: 实现DeepWiki检索
+	// 这里可以调用DeepWiki MCP服务
 	return []KnowledgeItem{}, nil
 }
 
 // fuseKnowledge 融合知识
 func (p *Processor) fuseKnowledge(ctx context.Context, question *Question, sources []KnowledgeItem) (*FusionResult, error) {
+	startTime := time.Now()
+	
 	// 计算融合分数
 	fusionScore := p.calculateFusionScore(sources)
-
+	
 	// 构建融合结果
 	fusionResult := &FusionResult{
-		Question:    question,
-		Sources:     sources,
-		FusionScore: fusionScore,
+		Question:      question,
+		Sources:       sources,
+		FusionScore:   fusionScore,
+		ProcessingTime: time.Since(startTime),
 	}
-
+	
 	p.logger.WithFields(logrus.Fields{
 		"fusion_score": fusionScore,
 		"sources_count": len(sources),
 	}).Info("知识融合完成")
-
+	
 	return fusionResult, nil
 }
 
 // calculateRelevance 计算相关性
 func (p *Processor) calculateRelevance(question *Question, source *KnowledgeItem) float64 {
 	// 简单的关键词匹配算法
-	// 在实际应用中可以使用更复杂的语义相似度算法
-	
 	questionText := strings.ToLower(question.Title + " " + question.Content)
 	sourceText := strings.ToLower(source.Title + " " + source.Content)
 	
 	// 计算关键词匹配度
-	keywords := append(question.Tags, strings.Fields(questionText)...)
-	matches := 0
+	questionWords := strings.Fields(questionText)
+	sourceWords := strings.Fields(sourceText)
 	
-	for _, keyword := range keywords {
-		if strings.Contains(sourceText, keyword) {
-			matches++
+	matches := 0
+	for _, qWord := range questionWords {
+		if len(qWord) < 3 { // 忽略短词
+			continue
+		}
+		for _, sWord := range sourceWords {
+			if strings.Contains(sWord, qWord) || strings.Contains(qWord, sWord) {
+				matches++
+				break
+			}
 		}
 	}
 	
-	if len(keywords) == 0 {
+	if len(questionWords) == 0 {
 		return 0.0
 	}
 	
-	return float64(matches) / float64(len(keywords))
+	relevance := float64(matches) / float64(len(questionWords))
+	
+	// 标签匹配加分
+	for _, qTag := range question.Tags {
+		for _, sTag := range source.Tags {
+			if strings.EqualFold(qTag, sTag) {
+				relevance += 0.2
+				break
+			}
+		}
+	}
+	
+	// 确保分数在0-1之间
+	if relevance > 1.0 {
+		relevance = 1.0
+	}
+	
+	return relevance
 }
 
 // sortByRelevance 按相关性排序
 func (p *Processor) sortByRelevance(sources []KnowledgeItem) {
-	// 这里实现排序逻辑
-	// 可以使用sort.Slice进行排序
+	// 简单的冒泡排序，按相关性降序
+	for i := 0; i < len(sources)-1; i++ {
+		for j := 0; j < len(sources)-1-i; j++ {
+			if sources[j].Relevance < sources[j+1].Relevance {
+				sources[j], sources[j+1] = sources[j+1], sources[j]
+			}
+		}
+	}
 }
 
 // calculateFusionScore 计算融合分数
@@ -447,7 +466,25 @@ func (p *Processor) calculateFusionScore(sources []KnowledgeItem) float64 {
 		totalRelevance += source.Relevance
 	}
 	
-	return totalRelevance / float64(len(sources))
+	avgRelevance := totalRelevance / float64(len(sources))
+	
+	// 考虑来源多样性
+	diversityBonus := 0.0
+	sourceTypes := make(map[KnowledgeSource]bool)
+	for _, source := range sources {
+		sourceTypes[source.Source] = true
+	}
+	
+	if len(sourceTypes) > 1 {
+		diversityBonus = 0.1 * float64(len(sourceTypes)-1)
+	}
+	
+	fusionScore := avgRelevance + diversityBonus
+	if fusionScore > 1.0 {
+		fusionScore = 1.0
+	}
+	
+	return fusionScore
 }
 
 // generateAnswer 生成回答
@@ -461,68 +498,139 @@ func (p *Processor) generateAnswer(ctx context.Context, fusionResult *FusionResu
 	// 计算置信度
 	confidence := p.calculateConfidence(fusionResult)
 	
+	// 构建回答对象
 	answer := &Answer{
+		ID:         uuid.New().String(),
+		QuestionID: fusionResult.Question.ID,
 		Content:    content,
 		Summary:    summary,
 		Sources:    fusionResult.Sources,
 		Confidence: confidence,
+		CreatedAt:  time.Now(),
 	}
-
+	
 	return answer, nil
 }
 
 // buildAnswerContent 构建回答内容
 func (p *Processor) buildAnswerContent(fusionResult *FusionResult) string {
-	// 这里实现内容构建逻辑
-	// 可以使用OpenAI API生成回答
-	return "基于检索到的知识，这里是回答内容..."
+	if len(fusionResult.Sources) == 0 {
+		return "抱歉，我没有找到相关的信息来回答您的问题。请尝试重新描述您的问题，或者联系社区管理员获取帮助。"
+	}
+	
+	var content strings.Builder
+	
+	// 添加主要回答
+	content.WriteString("根据我的分析，以下是针对您问题的回答：\n\n")
+	
+	// 基于最相关的源构建回答
+	if len(fusionResult.Sources) > 0 {
+		primarySource := fusionResult.Sources[0]
+		content.WriteString(primarySource.Content)
+		content.WriteString("\n\n")
+	}
+	
+	// 如果有多个来源，添加补充信息
+	if len(fusionResult.Sources) > 1 {
+		content.WriteString("补充信息：\n")
+		for i, source := range fusionResult.Sources[1:] {
+			if i >= 2 { // 最多显示3个来源
+				break
+			}
+			content.WriteString(fmt.Sprintf("- %s\n", source.Title))
+		}
+		content.WriteString("\n")
+	}
+	
+	// 添加来源链接
+	content.WriteString("参考来源：\n")
+	for _, source := range fusionResult.Sources {
+		if source.URL != "" {
+			content.WriteString(fmt.Sprintf("- [%s](%s)\n", source.Title, source.URL))
+		}
+	}
+	
+	return content.String()
 }
 
 // buildAnswerSummary 构建回答摘要
 func (p *Processor) buildAnswerSummary(content string) string {
-	// 这里实现摘要生成逻辑
-	// 可以使用OpenAI API生成摘要
-	if len(content) > 200 {
-		return content[:200] + "..."
+	// 简单的摘要生成：取前200个字符
+	if len(content) <= 200 {
+		return content
 	}
-	return content
+	
+	summary := content[:200]
+	// 尝试在句号处截断
+	if lastPeriod := strings.LastIndex(summary, "。"); lastPeriod > 150 {
+		summary = summary[:lastPeriod+3] // 包含句号
+	}
+	
+	return summary + "..."
 }
 
 // calculateConfidence 计算置信度
 func (p *Processor) calculateConfidence(fusionResult *FusionResult) float64 {
 	// 基于融合分数和来源质量计算置信度
-	baseConfidence := fusionResult.FusionScore
+	confidence := fusionResult.FusionScore
 	
-	// 根据来源数量调整置信度
-	sourceCount := len(fusionResult.Sources)
-	if sourceCount > 0 {
-		baseConfidence *= float64(sourceCount) / float64(p.config.Fusion.MaxSources)
+	// 根据来源数量调整
+	if len(fusionResult.Sources) > 0 {
+		avgRelevance := 0.0
+		for _, source := range fusionResult.Sources {
+			avgRelevance += source.Relevance
+		}
+		avgRelevance /= float64(len(fusionResult.Sources))
+		
+		// 融合分数和平均相关性的加权平均
+		confidence = (fusionResult.FusionScore*0.7 + avgRelevance*0.3)
 	}
 	
-	return baseConfidence
+	// 确保置信度在0-1之间
+	if confidence > 1.0 {
+		confidence = 1.0
+	}
+	
+	return confidence
 }
 
 // generateRecommendations 生成建议
 func (p *Processor) generateRecommendations(question *Question, answer *Answer) []string {
-	recommendations := make([]string, 0)
+	var recommendations []string
 	
 	// 基于问题类型生成建议
 	switch question.Type {
 	case QuestionTypeIssue:
-		recommendations = append(recommendations, "建议在GitHub上创建Issue")
-		recommendations = append(recommendations, "提供详细的错误信息和重现步骤")
+		recommendations = append(recommendations, 
+			"如果问题仍然存在，请提供更详细的错误信息和环境配置",
+			"考虑在GitHub上创建Issue以获得更多社区支持")
 	case QuestionTypePR:
-		recommendations = append(recommendations, "确保代码符合项目规范")
-		recommendations = append(recommendations, "添加必要的测试用例")
-	case QuestionTypeConfig:
-		recommendations = append(recommendations, "检查配置文件语法")
-		recommendations = append(recommendations, "参考官方文档进行配置")
+		recommendations = append(recommendations,
+			"确保您的PR符合项目的贡献指南",
+			"添加适当的测试用例和文档更新")
+	case QuestionTypeText:
+		recommendations = append(recommendations,
+			"如果这个回答对您有帮助，请标记为已解决",
+			"您可以在社区论坛中分享您的经验")
 	}
 	
 	// 基于置信度生成建议
 	if answer.Confidence < 0.7 {
-		recommendations = append(recommendations, "建议提供更多上下文信息")
-		recommendations = append(recommendations, "可以尝试重新描述问题")
+		recommendations = append(recommendations,
+			"这个回答的置信度较低，建议您进一步验证信息",
+			"考虑联系项目维护者获取更准确的指导")
+	}
+	
+	// 基于标签生成建议
+	for _, tag := range question.Tags {
+		switch tag {
+		case "gateway":
+			recommendations = append(recommendations, "查看Higress网关配置文档")
+		case "plugin":
+			recommendations = append(recommendations, "参考插件开发指南")
+		case "kubernetes":
+			recommendations = append(recommendations, "确保您的Kubernetes环境配置正确")
+		}
 	}
 	
 	return recommendations
