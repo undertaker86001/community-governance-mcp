@@ -1,0 +1,104 @@
+# Higress社区治理智能助手配置文件
+
+# Agent基础配置
+agent:
+  name: "higress-community-agent"
+  version: "1.0.0"
+  port: 8080
+  debug: true
+
+# OpenAI配置
+openai:
+  api_key: "${OPENAI_API_KEY}"
+  model: "gpt-4o"
+  max_tokens: 4000
+  temperature: 0.7
+
+# DeepWiki MCP配置
+deepwiki:
+  enabled: true
+  endpoint: "https://mcp.deepwiki.com/mcp"
+  timeout: "30s"
+  max_retries: 3
+
+# GitHub配置
+github:
+  token: "${GITHUB_TOKEN}"
+  owner: "alibaba"
+  repo: "higress"
+  webhook_url: ""
+
+# Higress文档配置
+higress:
+  docs_url: "https://higress.io/docs"
+  cache_duration: "1h"
+  max_concurrent_requests: 10
+
+# 知识库配置
+knowledge:
+  enabled: true
+  storage_path: "./data/knowledge"
+  max_size: "1GB"
+  update_interval: "24h"
+
+# 知识融合配置
+fusion:
+  enabled: true
+  similarity_threshold: 0.7
+  max_sources: 5
+  response_format: "markdown"
+
+# 日志配置
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  file_path: "./logs/agent.log"
+
+# 监控配置
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_interval: "30s"
+
+# 工具配置
+tools:
+  bug_analyzer:
+    enabled: true
+    max_stack_trace_length: 10000
+    supported_languages: ["go", "java", "python", "javascript"]
+  
+  image_analyzer:
+    enabled: true
+    max_image_size: "10MB"
+    supported_formats: ["png", "jpg", "jpeg", "gif"]
+  
+  issue_classifier:
+    enabled: true
+    categories: ["bug", "feature", "enhancement", "documentation", "question"]
+    priorities: ["low", "normal", "high", "urgent", "critical"]
+  
+  github_manager:
+    enabled: true
+    auto_label: true
+    auto_assign: true
+  
+  community_stats:
+    enabled: true
+    update_interval: "1h"
+    cache_duration: "24h"
+
+# 安全配置
+security:
+  cors_enabled: true
+  allowed_origins: ["*"]
+  rate_limit_enabled: true
+  rate_limit_requests: 100
+  rate_limit_window: "1m"
+
+# 缓存配置
+cache:
+  enabled: true
+  redis_url: "${REDIS_URL}"
+  default_ttl: "1h"
+  max_size: 1000 
