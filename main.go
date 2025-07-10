@@ -12,24 +12,31 @@ import (
 	"syscall"
 
 	"github.com/higress-group/wasm-go/pkg/mcp"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// 初始化配置
 	cfg := &config.CommunityGovernanceConfig{
 		GitHubToken:    os.Getenv("GITHUB_TOKEN"),
 		OpenAIKey:      os.Getenv("OPENAI_KEY"),
 		ImageAPIKey:    os.Getenv("IMAGE_API_KEY"),
-		ImageAPIURL:    "https://api.openai.com/v1/chat/completions",
+		ImageAPIURL:    "https://open.bigmodel.cn/api/paas/v4/chat/completions",
 		KnowledgeDBURL: os.Getenv("KNOWLEDGE_DB_URL"),
 		RepoOwner:      "alibaba",
 		RepoName:       "higress",
 		IntentLLM: config.IntentLLMConfig{
-			ServiceName: "dashscope.dns",
-			Domain:      "dashscope.aliyuncs.com",
+			ServiceName: "zhipu",
+			Domain:      "https://open.bigmodel.cn",
 			Port:        443,
-			Path:        "/compatible-mode/v1/chat/completions",
-			Model:       "qwen-max-0403",
+			Path:        "/api/paas/v4/chat/completions",
+			Model:       "glm-4v-flash",
 			APIKey:      os.Getenv("OPENAI_KEY"),
 			Timeout:     10000,
 		},
