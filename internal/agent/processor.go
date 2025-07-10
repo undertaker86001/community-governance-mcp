@@ -6,39 +6,59 @@ import (
 	"strings"
 	"time"
 
+	"community-governance-mcp-higress/internal/memory"
+	"community-governance-mcp-higress/internal/openai"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"community-governance-mcp-higress/internal/openai"
 )
 
 // Processor Agent处理器
 type Processor struct {
-	openaiClient *openai.Client
-	logger       *logrus.Logger
-	config       *AgentConfig
+	openaiClient  *openai.Client
+	memoryManager *memory.Manager
+	logger        *logrus.Logger
+	config        *AgentConfig
 }
 
 // NewProcessor 创建新的处理器
 func NewProcessor(openaiClient *openai.Client, config *AgentConfig) *Processor {
+	// 创建记忆管理器
+	memoryConfig := memory.MemoryConfig{
+		WorkingMemoryMaxItems: config.Memory.WorkingMemoryMaxItems,
+		WorkingMemoryTTL:      config.Memory.WorkingMemoryTTL,
+		ShortTermMemorySlots:  config.Memory.ShortTermMemorySlots,
+		ShortTermMemoryTTL:    config.Memory.ShortTermMemoryTTL,
+		CleanupInterval:       config.Memory.CleanupInterval,
+		ImportanceThreshold:   config.Memory.ImportanceThreshold,
+	}
+	memoryManager := memory.NewManager(memoryConfig)
+
 	return &Processor{
-		openaiClient: openaiClient,
-		logger:       logrus.New(),
-		config:       config,
+		openaiClient:  openaiClient,
+		memoryManager: memoryManager,
+		logger:        logrus.New(),
+		config:        config,
 	}
 }
 
 // ProcessQuestion 处理用户问题
 func (p *Processor) ProcessQuestion(ctx context.Context, request *ProcessRequest) (*ProcessResponse, error) {
 	startTime := time.Now()
-	
+
 	// 生成问题ID
 	questionID := uuid.New().String()
-	
+
 	p.logger.WithFields(logrus.Fields{
 		"question_id": questionID,
 		"type":        request.Type,
 		"author":      request.Author,
 	}).Info("开始处理用户问题")
+
+	// 0. 检索相关记忆
+	relatedMemories, err := p.retrieveRelatedMemories(ctx, request)
+	if err != nil {
+		p.logger.WithError(err).Warn("检索记忆失败，继续处理")
+	}
 
 	// 1. 问题理解和分类
 	question, err := p.understandQuestion(ctx, request, questionID)
@@ -52,8 +72,8 @@ func (p *Processor) ProcessQuestion(ctx context.Context, request *ProcessRequest
 		return nil, fmt.Errorf("知识检索失败: %w", err)
 	}
 
-	// 3. 知识融合
-	fusionResult, err := p.fuseKnowledge(ctx, question, sources)
+	// 3. 知识融合（包含记忆）
+	fusionResult, err := p.fuseKnowledgeWithMemory(ctx, question, sources, relatedMemories)
 	if err != nil {
 		return nil, fmt.Errorf("知识融合失败: %w", err)
 	}
@@ -64,17 +84,20 @@ func (p *Processor) ProcessQuestion(ctx context.Context, request *ProcessRequest
 		return nil, fmt.Errorf("生成回答失败: %w", err)
 	}
 
-	// 5. 构建响应
+	// 5. 存储相关记忆
+	p.storeRelevantMemories(ctx, request, question, answer)
+
+	// 6. 构建响应
 	processingTime := time.Since(startTime)
 	response := &ProcessResponse{
-		ID:             uuid.New().String(),
-		QuestionID:     questionID,
-		Content:        answer.Content,
-		Summary:        answer.Summary,
-		Sources:        answer.Sources,
-		Confidence:     answer.Confidence,
-		ProcessingTime: processingTime.String(),
-		FusionScore:    fusionResult.FusionScore,
+		ID:              uuid.New().String(),
+		QuestionID:      questionID,
+		Content:         answer.Content,
+		Summary:         answer.Summary,
+		Sources:         answer.Sources,
+		Confidence:      answer.Confidence,
+		ProcessingTime:  processingTime.String(),
+		FusionScore:     fusionResult.FusionScore,
 		Recommendations: p.generateRecommendations(question, answer),
 	}
 
@@ -91,9 +114,9 @@ func (p *Processor) ProcessQuestion(ctx context.Context, request *ProcessRequest
 // AnalyzeProblem 分析问题（Bug分析、图片分析等）
 func (p *Processor) AnalyzeProblem(ctx context.Context, request *AnalyzeRequest) (*AnalyzeResponse, error) {
 	startTime := time.Now()
-	
+
 	analysisID := uuid.New().String()
-	
+
 	p.logger.WithFields(logrus.Fields{
 		"analysis_id": analysisID,
 		"issue_type":  request.IssueType,
@@ -144,12 +167,169 @@ func (p *Processor) AnalyzeProblem(ctx context.Context, request *AnalyzeRequest)
 	}
 
 	p.logger.WithFields(logrus.Fields{
-		"analysis_id":    analysisID,
+		"analysis_id":     analysisID,
 		"processing_time": processingTime,
-		"confidence":     response.Confidence,
+		"confidence":      response.Confidence,
 	}).Info("问题分析完成")
 
 	return response, nil
+}
+
+// retrieveRelatedMemories 检索相关记忆
+func (p *Processor) retrieveRelatedMemories(ctx context.Context, request *ProcessRequest) ([]memory.MemoryItem, error) {
+	// 生成会话ID（基于用户ID）
+	sessionID := fmt.Sprintf("session_%s", request.Author)
+
+	// 构建查询
+	query := &memory.MemoryQuery{
+		SessionID: sessionID,
+		UserID:    request.Author,
+		Keywords:  p.extractKeywords(request.Content),
+		Tags:      request.Tags,
+		Limit:     10,
+	}
+
+	// 检索工作记忆
+	workingResponse, err := p.memoryManager.RetrieveMemory(ctx, &memory.MemoryQuery{
+		SessionID: sessionID,
+		UserID:    request.Author,
+		Type:      memory.WorkingMemory,
+		Keywords:  query.Keywords,
+		Tags:      query.Tags,
+		Limit:     5,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("检索工作记忆失败: %w", err)
+	}
+
+	// 检索短期记忆
+	shortTermResponse, err := p.memoryManager.RetrieveMemory(ctx, &memory.MemoryQuery{
+		SessionID: sessionID,
+		UserID:    request.Author,
+		Type:      memory.ShortTermMemory,
+		Keywords:  query.Keywords,
+		Tags:      query.Tags,
+		Limit:     5,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("检索短期记忆失败: %w", err)
+	}
+
+	// 合并记忆项
+	var allMemories []memory.MemoryItem
+	allMemories = append(allMemories, workingResponse.Items...)
+	allMemories = append(allMemories, shortTermResponse.Items...)
+
+	p.logger.WithField("memory_count", len(allMemories)).Info("检索到相关记忆")
+	return allMemories, nil
+}
+
+// fuseKnowledgeWithMemory 融合知识和记忆
+func (p *Processor) fuseKnowledgeWithMemory(ctx context.Context, question *Question, sources []KnowledgeItem, memories []memory.MemoryItem) (*FusionResult, error) {
+	// 原有的知识融合逻辑
+	fusionResult, err := p.fuseKnowledge(ctx, question, sources)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果有相关记忆，将其添加到融合结果中
+	if len(memories) > 0 {
+		memoryContext := p.buildMemoryContext(memories)
+		fusionResult.Context += "\n\n相关历史记忆:\n" + memoryContext
+
+		p.logger.WithField("memory_items", len(memories)).Info("融合记忆到知识中")
+	}
+
+	return fusionResult, nil
+}
+
+// storeRelevantMemories 存储相关记忆
+func (p *Processor) storeRelevantMemories(ctx context.Context, request *ProcessRequest, question *Question, answer *Answer) {
+	sessionID := fmt.Sprintf("session_%s", request.Author)
+
+	// 存储问题到工作记忆
+	questionMemory := &memory.MemoryRequest{
+		SessionID: sessionID,
+		UserID:    request.Author,
+		Type:      memory.WorkingMemory,
+		Content:   request.Content,
+		Context:   fmt.Sprintf("问题类型: %s, 优先级: %s", request.Type, request.Priority),
+		Tags:      request.Tags,
+		Metadata: map[string]interface{}{
+			"question_id": question.ID,
+			"priority":    request.Priority,
+			"type":        request.Type,
+		},
+	}
+
+	if err := p.memoryManager.StoreMemory(ctx, questionMemory); err != nil {
+		p.logger.WithError(err).Warn("存储问题记忆失败")
+	}
+
+	// 存储答案到短期记忆
+	answerMemory := &memory.MemoryRequest{
+		SessionID: sessionID,
+		UserID:    request.Author,
+		Type:      memory.ShortTermMemory,
+		Content:   answer.Content,
+		Context:   fmt.Sprintf("回答置信度: %.2f, 融合分数: %.2f", answer.Confidence, answer.FusionScore),
+		Tags:      append(request.Tags, "answer"),
+		Metadata: map[string]interface{}{
+			"question_id":  question.ID,
+			"confidence":   answer.Confidence,
+			"fusion_score": answer.FusionScore,
+		},
+	}
+
+	if err := p.memoryManager.StoreMemory(ctx, answerMemory); err != nil {
+		p.logger.WithError(err).Warn("存储答案记忆失败")
+	}
+}
+
+// extractKeywords 提取关键词
+func (p *Processor) extractKeywords(content string) []string {
+	// 简单的关键词提取逻辑
+	// 这里可以集成更复杂的NLP处理
+	words := strings.Fields(content)
+	var keywords []string
+
+	for _, word := range words {
+		if len(word) > 3 && !p.isCommonWord(word) {
+			keywords = append(keywords, strings.ToLower(word))
+		}
+	}
+
+	return keywords
+}
+
+// isCommonWord 判断是否为常见词
+func (p *Processor) isCommonWord(word string) bool {
+	commonWords := map[string]bool{
+		"the": true, "and": true, "or": true, "but": true, "in": true, "on": true, "at": true,
+		"to": true, "for": true, "of": true, "with": true, "by": true, "from": true, "this": true,
+		"that": true, "is": true, "are": true, "was": true, "were": true, "be": true, "been": true,
+		"have": true, "has": true, "had": true, "do": true, "does": true, "did": true, "will": true,
+		"would": true, "could": true, "should": true, "can": true, "may": true, "might": true,
+	}
+
+	return commonWords[strings.ToLower(word)]
+}
+
+// buildMemoryContext 构建记忆上下文
+func (p *Processor) buildMemoryContext(memories []memory.MemoryItem) string {
+	if len(memories) == 0 {
+		return ""
+	}
+
+	var contextParts []string
+	for i, memory := range memories {
+		if i >= 3 { // 最多显示3个记忆
+			break
+		}
+		contextParts = append(contextParts, fmt.Sprintf("- %s (重要性: %.2f)", memory.Content, memory.Importance))
+	}
+
+	return strings.Join(contextParts, "\n")
 }
 
 // GetCommunityStats 获取社区统计
@@ -176,13 +356,13 @@ func (p *Processor) GetCommunityStats(ctx context.Context) (*CommunityStats, err
 func (p *Processor) understandQuestion(ctx context.Context, request *ProcessRequest, questionID string) (*Question, error) {
 	// 确定问题类型
 	questionType := p.determineQuestionType(request)
-	
+
 	// 提取关键词和标签
 	tags := p.extractTags(request)
-	
+
 	// 确定优先级
 	priority := p.determinePriority(request)
-	
+
 	// 构建问题对象
 	question := &Question{
 		ID:        questionID,
@@ -239,7 +419,7 @@ func (p *Processor) determineQuestionType(request *ProcessRequest) QuestionType 
 // extractTags 提取标签
 func (p *Processor) extractTags(request *ProcessRequest) []string {
 	tags := make([]string, 0)
-	
+
 	// 添加用户提供的标签
 	if request.Tags != nil {
 		tags = append(tags, request.Tags...)
@@ -247,7 +427,7 @@ func (p *Processor) extractTags(request *ProcessRequest) []string {
 
 	// 基于内容提取标签
 	content := strings.ToLower(request.Content + " " + request.Title)
-	
+
 	// Higress相关标签
 	higressKeywords := []string{"gateway", "plugin", "route", "config", "deployment"}
 	for _, keyword := range higressKeywords {
@@ -276,7 +456,7 @@ func (p *Processor) determinePriority(request *ProcessRequest) Priority {
 
 	// 基于关键词确定优先级
 	content := strings.ToLower(request.Content + " " + request.Title)
-	
+
 	// 紧急关键词
 	urgentKeywords := []string{"urgent", "critical", "broken", "crash", "production"}
 	for _, keyword := range urgentKeywords {
@@ -375,23 +555,23 @@ func (p *Processor) retrieveDeepWiki(ctx context.Context, question *Question) ([
 // fuseKnowledge 融合知识
 func (p *Processor) fuseKnowledge(ctx context.Context, question *Question, sources []KnowledgeItem) (*FusionResult, error) {
 	startTime := time.Now()
-	
+
 	// 计算融合分数
 	fusionScore := p.calculateFusionScore(sources)
-	
+
 	// 构建融合结果
 	fusionResult := &FusionResult{
-		Question:      question,
-		Sources:       sources,
-		FusionScore:   fusionScore,
+		Question:       question,
+		Sources:        sources,
+		FusionScore:    fusionScore,
 		ProcessingTime: time.Since(startTime),
 	}
-	
+
 	p.logger.WithFields(logrus.Fields{
-		"fusion_score": fusionScore,
+		"fusion_score":  fusionScore,
 		"sources_count": len(sources),
 	}).Info("知识融合完成")
-	
+
 	return fusionResult, nil
 }
 
@@ -400,11 +580,11 @@ func (p *Processor) calculateRelevance(question *Question, source *KnowledgeItem
 	// 简单的关键词匹配算法
 	questionText := strings.ToLower(question.Title + " " + question.Content)
 	sourceText := strings.ToLower(source.Title + " " + source.Content)
-	
+
 	// 计算关键词匹配度
 	questionWords := strings.Fields(questionText)
 	sourceWords := strings.Fields(sourceText)
-	
+
 	matches := 0
 	for _, qWord := range questionWords {
 		if len(qWord) < 3 { // 忽略短词
@@ -417,13 +597,13 @@ func (p *Processor) calculateRelevance(question *Question, source *KnowledgeItem
 			}
 		}
 	}
-	
+
 	if len(questionWords) == 0 {
 		return 0.0
 	}
-	
+
 	relevance := float64(matches) / float64(len(questionWords))
-	
+
 	// 标签匹配加分
 	for _, qTag := range question.Tags {
 		for _, sTag := range source.Tags {
@@ -433,12 +613,12 @@ func (p *Processor) calculateRelevance(question *Question, source *KnowledgeItem
 			}
 		}
 	}
-	
+
 	// 确保分数在0-1之间
 	if relevance > 1.0 {
 		relevance = 1.0
 	}
-	
+
 	return relevance
 }
 
@@ -459,31 +639,31 @@ func (p *Processor) calculateFusionScore(sources []KnowledgeItem) float64 {
 	if len(sources) == 0 {
 		return 0.0
 	}
-	
+
 	// 计算平均相关性
 	totalRelevance := 0.0
 	for _, source := range sources {
 		totalRelevance += source.Relevance
 	}
-	
+
 	avgRelevance := totalRelevance / float64(len(sources))
-	
+
 	// 考虑来源多样性
 	diversityBonus := 0.0
 	sourceTypes := make(map[KnowledgeSource]bool)
 	for _, source := range sources {
 		sourceTypes[source.Source] = true
 	}
-	
+
 	if len(sourceTypes) > 1 {
 		diversityBonus = 0.1 * float64(len(sourceTypes)-1)
 	}
-	
+
 	fusionScore := avgRelevance + diversityBonus
 	if fusionScore > 1.0 {
 		fusionScore = 1.0
 	}
-	
+
 	return fusionScore
 }
 
@@ -491,13 +671,13 @@ func (p *Processor) calculateFusionScore(sources []KnowledgeItem) float64 {
 func (p *Processor) generateAnswer(ctx context.Context, fusionResult *FusionResult) (*Answer, error) {
 	// 构建回答内容
 	content := p.buildAnswerContent(fusionResult)
-	
+
 	// 生成摘要
 	summary := p.buildAnswerSummary(content)
-	
+
 	// 计算置信度
 	confidence := p.calculateConfidence(fusionResult)
-	
+
 	// 构建回答对象
 	answer := &Answer{
 		ID:         uuid.New().String(),
@@ -508,7 +688,7 @@ func (p *Processor) generateAnswer(ctx context.Context, fusionResult *FusionResu
 		Confidence: confidence,
 		CreatedAt:  time.Now(),
 	}
-	
+
 	return answer, nil
 }
 
@@ -517,19 +697,19 @@ func (p *Processor) buildAnswerContent(fusionResult *FusionResult) string {
 	if len(fusionResult.Sources) == 0 {
 		return "抱歉，我没有找到相关的信息来回答您的问题。请尝试重新描述您的问题，或者联系社区管理员获取帮助。"
 	}
-	
+
 	var content strings.Builder
-	
+
 	// 添加主要回答
 	content.WriteString("根据我的分析，以下是针对您问题的回答：\n\n")
-	
+
 	// 基于最相关的源构建回答
 	if len(fusionResult.Sources) > 0 {
 		primarySource := fusionResult.Sources[0]
 		content.WriteString(primarySource.Content)
 		content.WriteString("\n\n")
 	}
-	
+
 	// 如果有多个来源，添加补充信息
 	if len(fusionResult.Sources) > 1 {
 		content.WriteString("补充信息：\n")
@@ -541,7 +721,7 @@ func (p *Processor) buildAnswerContent(fusionResult *FusionResult) string {
 		}
 		content.WriteString("\n")
 	}
-	
+
 	// 添加来源链接
 	content.WriteString("参考来源：\n")
 	for _, source := range fusionResult.Sources {
@@ -549,7 +729,7 @@ func (p *Processor) buildAnswerContent(fusionResult *FusionResult) string {
 			content.WriteString(fmt.Sprintf("- [%s](%s)\n", source.Title, source.URL))
 		}
 	}
-	
+
 	return content.String()
 }
 
@@ -559,13 +739,13 @@ func (p *Processor) buildAnswerSummary(content string) string {
 	if len(content) <= 200 {
 		return content
 	}
-	
+
 	summary := content[:200]
 	// 尝试在句号处截断
 	if lastPeriod := strings.LastIndex(summary, "。"); lastPeriod > 150 {
 		summary = summary[:lastPeriod+3] // 包含句号
 	}
-	
+
 	return summary + "..."
 }
 
@@ -573,7 +753,7 @@ func (p *Processor) buildAnswerSummary(content string) string {
 func (p *Processor) calculateConfidence(fusionResult *FusionResult) float64 {
 	// 基于融合分数和来源质量计算置信度
 	confidence := fusionResult.FusionScore
-	
+
 	// 根据来源数量调整
 	if len(fusionResult.Sources) > 0 {
 		avgRelevance := 0.0
@@ -581,27 +761,27 @@ func (p *Processor) calculateConfidence(fusionResult *FusionResult) float64 {
 			avgRelevance += source.Relevance
 		}
 		avgRelevance /= float64(len(fusionResult.Sources))
-		
+
 		// 融合分数和平均相关性的加权平均
 		confidence = (fusionResult.FusionScore*0.7 + avgRelevance*0.3)
 	}
-	
+
 	// 确保置信度在0-1之间
 	if confidence > 1.0 {
 		confidence = 1.0
 	}
-	
+
 	return confidence
 }
 
 // generateRecommendations 生成建议
 func (p *Processor) generateRecommendations(question *Question, answer *Answer) []string {
 	var recommendations []string
-	
+
 	// 基于问题类型生成建议
 	switch question.Type {
 	case QuestionTypeIssue:
-		recommendations = append(recommendations, 
+		recommendations = append(recommendations,
 			"如果问题仍然存在，请提供更详细的错误信息和环境配置",
 			"考虑在GitHub上创建Issue以获得更多社区支持")
 	case QuestionTypePR:
@@ -613,14 +793,14 @@ func (p *Processor) generateRecommendations(question *Question, answer *Answer) 
 			"如果这个回答对您有帮助，请标记为已解决",
 			"您可以在社区论坛中分享您的经验")
 	}
-	
+
 	// 基于置信度生成建议
 	if answer.Confidence < 0.7 {
 		recommendations = append(recommendations,
 			"这个回答的置信度较低，建议您进一步验证信息",
 			"考虑联系项目维护者获取更准确的指导")
 	}
-	
+
 	// 基于标签生成建议
 	for _, tag := range question.Tags {
 		switch tag {
@@ -632,7 +812,7 @@ func (p *Processor) generateRecommendations(question *Question, answer *Answer) 
 			recommendations = append(recommendations, "确保您的Kubernetes环境配置正确")
 		}
 	}
-	
+
 	return recommendations
 }
 
@@ -643,13 +823,13 @@ func (p *Processor) analyzeBug(ctx context.Context, request *AnalyzeRequest) (*B
 	if !ok {
 		return nil, fmt.Errorf("Bug分析工具未找到")
 	}
-	
+
 	// 分析Bug
 	analysis, err := bugAnalyzer.Analyze(ctx, request.StackTrace, request.Environment)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return analysis, nil
 }
 
@@ -660,13 +840,13 @@ func (p *Processor) analyzeImage(ctx context.Context, request *AnalyzeRequest) (
 	if !ok {
 		return nil, fmt.Errorf("图片分析工具未找到")
 	}
-	
+
 	// 分析图片
 	analysis, err := imageAnalyzer.Analyze(ctx, request.ImageURL)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return analysis, nil
 }
 
@@ -677,13 +857,13 @@ func (p *Processor) classifyIssue(ctx context.Context, request *AnalyzeRequest) 
 	if !ok {
 		return nil, fmt.Errorf("Issue分类工具未找到")
 	}
-	
+
 	// 分类Issue
 	classification, err := issueClassifier.Classify(ctx, request.StackTrace)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return classification, nil
 }
 
@@ -704,4 +884,9 @@ func (p *Processor) analyzeGeneral(ctx context.Context, request *AnalyzeRequest)
 // SetLogger 设置日志器
 func (p *Processor) SetLogger(logger *logrus.Logger) {
 	p.logger = logger
-} 
+}
+
+// GetMemoryManager 获取记忆管理器
+func (p *Processor) GetMemoryManager() *memory.Manager {
+	return p.memoryManager
+}

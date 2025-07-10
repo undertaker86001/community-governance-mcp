@@ -9,20 +9,22 @@ import (
 	"syscall"
 	"time"
 
+	"community-governance-mcp-higress/internal/agent"
+	"community-governance-mcp-higress/internal/memory"
+	"community-governance-mcp-higress/internal/openai"
+	"community-governance-mcp-higress/tools"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"community-governance-mcp-higress/internal/agent"
-	"community-governance-mcp-higress/internal/openai"
-	"community-governance-mcp-higress/tools"
 )
 
 // Server HTTP服务器
 type Server struct {
-	processor *agent.Processor
-	config    *agent.AgentConfig
-	logger    *logrus.Logger
-	router    *gin.Engine
+	processor     *agent.Processor
+	memoryHandler *memory.Handler
+	config        *agent.AgentConfig
+	logger        *logrus.Logger
+	router        *gin.Engine
 }
 
 // NewServer 创建新的服务器
@@ -33,6 +35,9 @@ func NewServer(processor *agent.Processor, config *agent.AgentConfig) *Server {
 		logger:    logrus.New(),
 		router:    gin.Default(),
 	}
+
+	// 创建记忆处理器
+	server.memoryHandler = memory.NewHandler(processor.GetMemoryManager())
 
 	// 设置路由
 	server.setupRoutes()
@@ -47,19 +52,22 @@ func (s *Server) setupRoutes() {
 	{
 		// 处理问题
 		v1.POST("/process", s.handleProcess)
-		
+
 		// 问题分析
 		v1.POST("/analyze", s.handleAnalyze)
-		
+
 		// 社区统计
 		v1.GET("/stats", s.handleStats)
-		
+
 		// 健康检查
 		v1.GET("/health", s.handleHealth)
-		
+
 		// 获取配置信息
 		v1.GET("/config", s.handleConfig)
 	}
+
+	// 注册记忆组件路由
+	s.memoryHandler.RegisterRoutes(s.router)
 
 	// 根路径
 	s.router.GET("/", s.handleRoot)
@@ -68,7 +76,7 @@ func (s *Server) setupRoutes() {
 // handleProcess 处理问题请求
 func (s *Server) handleProcess(c *gin.Context) {
 	var request agent.ProcessRequest
-	
+
 	// 解析请求体
 	if err := c.ShouldBindJSON(&request); err != nil {
 		s.logger.WithError(err).Error("请求解析失败")
@@ -110,12 +118,12 @@ func (s *Server) handleProcess(c *gin.Context) {
 // handleAnalyze 处理问题分析请求
 func (s *Server) handleAnalyze(c *gin.Context) {
 	var request struct {
-		StackTrace string `json:"stack_trace"`
+		StackTrace  string `json:"stack_trace"`
 		Environment string `json:"environment"`
-		Version    string `json:"version"`
-		ImageURL   string `json:"image_url,omitempty"`
+		Version     string `json:"version"`
+		ImageURL    string `json:"image_url,omitempty"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "请求格式错误",
@@ -186,17 +194,17 @@ func (s *Server) handleHealth(c *gin.Context) {
 func (s *Server) handleConfig(c *gin.Context) {
 	// 返回安全的配置信息（不包含敏感数据）
 	safeConfig := gin.H{
-		"name":     s.config.Name,
-		"version":  s.config.Version,
-		"port":     s.config.Port,
-		"debug":    s.config.Debug,
+		"name":    s.config.Name,
+		"version": s.config.Version,
+		"port":    s.config.Port,
+		"debug":   s.config.Debug,
 		"features": gin.H{
-			"deepwiki_enabled": s.config.DeepWiki.Enabled,
+			"deepwiki_enabled":  s.config.DeepWiki.Enabled,
 			"knowledge_enabled": s.config.Knowledge.Enabled,
-			"fusion_enabled":   s.config.Fusion.Enabled,
+			"fusion_enabled":    s.config.Fusion.Enabled,
 		},
 	}
-	
+
 	c.JSON(http.StatusOK, safeConfig)
 }
 
@@ -208,7 +216,7 @@ func (s *Server) handleRoot(c *gin.Context) {
 		"docs":    "/api/v1/",
 		"features": []string{
 			"智能问答",
-			"问题分析", 
+			"问题分析",
 			"社区统计",
 			"知识融合",
 		},
@@ -220,15 +228,15 @@ func (s *Server) validateRequest(request *agent.ProcessRequest) error {
 	if request.Title == "" {
 		return fmt.Errorf("标题不能为空")
 	}
-	
+
 	if request.Content == "" {
 		return fmt.Errorf("内容不能为空")
 	}
-	
+
 	if request.Author == "" {
 		request.Author = "anonymous"
 	}
-	
+
 	return nil
 }
 
@@ -236,7 +244,7 @@ func (s *Server) validateRequest(request *agent.ProcessRequest) error {
 func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.config.Port)
 	s.logger.WithField("port", s.config.Port).Info("启动HTTP服务器")
-	
+
 	return s.router.Run(addr)
 }
 
@@ -246,44 +254,44 @@ func loadConfig() (*agent.AgentConfig, error) {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath("./configs")
 	viper.AddConfigPath(".")
-	
+
 	// 设置环境变量
 	viper.AutomaticEnv()
-	
+
 	// 读取配置文件
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("读取配置文件失败: %w", err)
 	}
-	
+
 	// 解析配置
 	var config agent.AgentConfig
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("解析配置失败: %w", err)
 	}
-	
+
 	// 从环境变量获取敏感信息
 	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
 		config.OpenAI.APIKey = apiKey
 	}
-	
+
 	if githubToken := os.Getenv("GITHUB_TOKEN"); githubToken != "" {
 		config.GitHub.Token = githubToken
 	}
-	
+
 	return &config, nil
 }
 
 // setupLogging 设置日志
 func setupLogging(config *agent.AgentConfig) *logrus.Logger {
 	logger := logrus.New()
-	
+
 	// 设置日志级别
 	level, err := logrus.ParseLevel(config.Logging.Level)
 	if err != nil {
 		level = logrus.InfoLevel
 	}
 	logger.SetLevel(level)
-	
+
 	// 设置日志格式
 	if config.Logging.Format == "json" {
 		logger.SetFormatter(&logrus.JSONFormatter{})
@@ -292,7 +300,7 @@ func setupLogging(config *agent.AgentConfig) *logrus.Logger {
 			FullTimestamp: true,
 		})
 	}
-	
+
 	return logger
 }
 
@@ -329,4 +337,4 @@ func main() {
 	<-sigChan
 
 	logger.Info("正在关闭服务器...")
-} 
+}

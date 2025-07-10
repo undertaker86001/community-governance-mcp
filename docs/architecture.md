@@ -82,49 +82,72 @@ graph TB
 ### 1. 服务层架构
 
 ```mermaid
-graph LR
+graph TB
     subgraph "HTTP服务器"
         A[Gin Router]
-        B[中间件]
-        C[认证]
-        D[限流]
+        B[中间件层]
+        C[认证中间件]
+        D[限流中间件]
+        E[日志中间件]
     end
 
-    subgraph "API接口"
-        E[/process - 智能问答]
-        F[/analyze - 问题分析]
-        G[/stats - 社区统计]
-        H[/health - 健康检查]
+    subgraph "API路由层"
+        F[POST /api/v1/process]
+        G[POST /api/v1/analyze]
+        H[GET /api/v1/stats]
+        I[GET /api/v1/health]
     end
 
-    subgraph "处理器"
-        I[Processor]
-        J[Question Handler]
-        K[Analysis Handler]
-        L[Stats Handler]
+    subgraph "业务处理器"
+        J[Processor]
+        K[QuestionProcessor]
+        L[AnalysisProcessor]
+        M[StatsProcessor]
     end
 
-    subgraph "工具集成"
-        M[Tool Loader]
-        N[Bug Analyzer]
-        O[Image Analyzer]
-        P[Community Stats]
+    subgraph "工具管理层"
+        N[Tool Loader]
+        O[Bug Analyzer]
+        P[Image Analyzer]
+        Q[Community Stats]
+        R[GitHub Manager]
+        S[Issue Classifier]
+    end
+
+    subgraph "外部服务"
+        T[OpenAI Client]
+        U[GitHub API]
+        V[DeepWiki MCP]
     end
 
     A --> B
     B --> C
-    C --> D
-    D --> E
-    D --> F
-    D --> G
-    D --> H
-    E --> I
-    F --> K
-    G --> L
-    I --> M
+    B --> D
+    B --> E
+    C --> F
+    C --> G
+    C --> H
+    C --> I
+    F --> J
+    G --> J
+    H --> J
+    I --> J
+    J --> K
+    J --> L
+    J --> M
+    K --> N
+    L --> N
     M --> N
-    M --> O
-    M --> P
+    N --> O
+    N --> P
+    N --> Q
+    N --> R
+    N --> S
+    O --> T
+    P --> T
+    Q --> U
+    R --> U
+    S --> T
 ```
 
 ### 2. 数据流架构

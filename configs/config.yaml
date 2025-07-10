@@ -104,4 +104,13 @@ cache:
   enabled: true
   redis_url: "${REDIS_URL}"
   default_ttl: "1h"
-  max_size: 1000 
+  max_size: 1000
+
+# 记忆组件配置
+memory:
+  working_memory_max_items: 20
+  working_memory_ttl: "30m"
+  short_term_memory_slots: 16
+  short_term_memory_ttl: "2h"
+  cleanup_interval: "5m"
+  importance_threshold: 0.3 
