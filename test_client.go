@@ -2,11 +2,12 @@ package main
 
 import (
 	"bytes"
-	"community-governance-mcp/test"
 	"encoding/json"
 	"fmt"
+	"github.com/community-governance-mcp-higress/test"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 

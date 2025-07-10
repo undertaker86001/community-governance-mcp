@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -121,4 +122,46 @@ func SendHTTPRequestAsync(ctx server.HttpContext, method, url string, headers ma
 			}
 			callback(string(responseBody), nil)
 		})
+}
+
+// SendMCPToolTextResult 发送MCP工具文本结果
+// 用于向MCP客户端返回工具执行结果
+func SendMCPToolTextResult(ctx server.HttpContext, toolName string, result string, success bool) error {
+	// 构建结果消息
+	response := map[string]interface{}{
+		"tool_name": toolName,
+		"result":    result,
+		"success":   success,
+		"timestamp": time.Now().Unix(),
+	}
+
+	// 转换为JSON
+	responseJSON, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal MCP tool result: %v", err)
+	}
+
+	// 发送HTTP响应
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	_, err = SendHTTPRequest(ctx, "POST", "/mcp/tool/result", headers, string(responseJSON))
+	if err != nil {
+		return fmt.Errorf("failed to send MCP tool result: %v", err)
+	}
+
+	return nil
+}
+
+// SendMCPToolErrorResult 发送MCP工具错误结果
+// 用于向MCP客户端返回工具执行错误
+func SendMCPToolErrorResult(ctx server.HttpContext, toolName string, errorMsg string) error {
+	return SendMCPToolTextResult(ctx, toolName, errorMsg, false)
+}
+
+// SendMCPToolSuccessResult 发送MCP工具成功结果
+// 用于向MCP客户端返回工具执行成功结果
+func SendMCPToolSuccessResult(ctx server.HttpContext, toolName string, result string) error {
+	return SendMCPToolTextResult(ctx, toolName, result, true)
 }

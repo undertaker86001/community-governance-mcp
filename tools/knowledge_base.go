@@ -1,14 +1,15 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"community-governance-mcp/config"
-	mcp_tool "community-governance-mcp/utils"
+	"github.com/community-governance-mcp-higress/config"
+	"github.com/community-governance-mcp-higress/internal/agent"
+	"github.com/community-governance-mcp-higress/utils"
 	"github.com/higress-group/wasm-go/pkg/mcp/server"
-	"github.com/higress-group/wasm-go/pkg/mcp/utils"
 )
 
 type KnowledgeBase struct {
@@ -70,7 +71,7 @@ func (t KnowledgeBase) Call(ctx server.HttpContext, s server.Server) error {
 	// 格式化搜索结果
 	formattedResults := t.formatSearchResults(results)
 
-	utils.SendMCPToolTextResult(ctx, formattedResults)
+	utils.SendMCPToolTextResult(ctx, "知识库搜索", formattedResults, true)
 	return nil
 }
 
@@ -112,7 +113,7 @@ func (t KnowledgeBase) searchIssues(ctx server.HttpContext, config *config.Commu
 		"Accept":        "application/vnd.github+json",
 	}
 
-	response, err := mcp_tool.SendHTTPRequest(ctx, "GET", searchURL, headers, "")
+	response, err := utils.SendHTTPRequest(ctx, "GET", searchURL, headers, "")
 	if err != nil {
 		return nil, err
 	}
@@ -183,4 +184,9 @@ func (t KnowledgeBase) formatSearchResults(results []string) string {
 	formatted.WriteString("---\n\n如需更多帮助，请访问 [Higress官方文档](https://higress.cn/docs/)")
 
 	return formatted.String()
+}
+
+// NewKnowledgeBase 创建知识库管理器
+func NewKnowledgeBase(storagePath string) *KnowledgeBase {
+	return &KnowledgeBase{}
 }

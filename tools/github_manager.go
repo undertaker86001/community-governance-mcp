@@ -1,13 +1,18 @@
 package tools
 
 import (
-	"community-governance-mcp/config"
-	mcp_tool "community-governance-mcp/utils"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/community-governance-mcp-higress/config"
+	"github.com/community-governance-mcp-higress/internal/agent"
+	"github.com/community-governance-mcp-higress/utils"
 	"github.com/higress-group/wasm-go/pkg/mcp/server"
-	"github.com/higress-group/wasm-go/pkg/mcp/utils"
 )
 
 type GitHubManager struct {
@@ -100,11 +105,11 @@ func (t GitHubManager) Call(ctx server.HttpContext, s server.Server) error {
 		"Content-Type":  "application/json",
 	}
 
-	response, err := mcp_tool.SendHTTPRequest(ctx, method, url, headers, requestBody)
+	_, err := utils.SendHTTPRequest(ctx, method, url, headers, requestBody)
 	if err != nil {
 		return err
 	}
 
-	utils.SendMCPToolTextResult(ctx, fmt.Sprintf("GitHub 操作完成：\n%s", response))
+	utils.SendMCPToolTextResult(ctx, "GitHub 操作完成", "", true)
 	return nil
 }

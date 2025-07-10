@@ -1,0 +1,129 @@
+# Google API配置
+google:
+  # Gmail配置
+  gmail:
+    # 服务账号凭证文件路径
+    credentials_file: "credentials.json"
+    # 访问令牌文件路径
+    token_file: "token.json"
+    # 邮件组地址
+    group_email: "maintainers@example.com"
+    # 权限范围
+    scopes:
+      - "https://www.googleapis.com/auth/gmail.send"
+      - "https://www.googleapis.com/auth/gmail.readonly"
+      - "https://www.googleapis.com/auth/gmail.modify"
+      - "https://www.googleapis.com/auth/gmail.labels"
+      - "https://www.googleapis.com/auth/gmail.compose"
+
+  # Google Groups配置
+  groups:
+    # 管理员邮箱
+    admin_email: "admin@example.com"
+    # 邮件组标识
+    group_key: "maintainers@example.com"
+    # 域名
+    domain: "example.com"
+
+# 邮件处理配置
+email:
+  # 维护者邮箱列表
+  maintainers:
+    - "maintainer1@example.com"
+    - "maintainer2@example.com"
+    - "maintainer3@example.com"
+  
+  # 邮件模板配置
+  templates:
+    # Issue通知模板
+    issue_notification:
+      subject: "[Issue #{issue_id}] {issue_title}"
+      content: |
+        Issue详情:
+        - URL: {issue_url}
+        - 标题: {issue_title}
+        - 内容: {issue_content}
+        - 优先级: {priority}
+        - 标签: {tags}
+        
+        分析结果: {analysis}
+        
+        请协助处理此Issue。
+    
+    # 回复确认模板
+    reply_confirmation:
+      subject: "Re: [Issue #{issue_id}] {issue_title}"
+      content: |
+        感谢维护者的回复:
+        
+        {maintainer_email}
+        
+        维护者回复: {reply_content}
+        
+        状态: {status}
+
+# Issue处理配置
+issue:
+  # 自动处理的关键词
+  auto_resolve_keywords:
+    - "documentation"
+    - "typo"
+    - "format"
+    - "spelling"
+    - "grammar"
+  
+  # 高优先级关键词
+  high_priority_keywords:
+    - "bug"
+    - "error"
+    - "crash"
+    - "fail"
+    - "security"
+    - "vulnerability"
+  
+  # 功能请求关键词
+  feature_keywords:
+    - "feature"
+    - "enhancement"
+    - "improvement"
+    - "request"
+
+# 监听配置
+watch:
+  # 监听间隔（秒）
+  interval: 300
+  # 最大监听时间（小时）
+  max_duration: 24
+  # 主题名称
+  topic_name: "projects/your-project/topics/gmail-notifications"
+
+# 数据管理配置
+data:
+  # 备份间隔（小时）
+  backup_interval: 24
+  # 数据保留天数
+  retention_days: 90
+  # 清理间隔（小时）
+  cleanup_interval: 168
+
+# 日志配置
+logging:
+  # 日志级别
+  level: "info"
+  # 日志文件路径
+  file: "logs/google_api.log"
+  # 最大日志文件大小（MB）
+  max_size: 100
+  # 保留的日志文件数量
+  max_files: 10
+
+# 监控配置
+monitoring:
+  # 启用监控
+  enabled: true
+  # 监控端口
+  port: 8081
+  # 健康检查路径
+  health_path: "/health"
+  # 指标路径
+  metrics_path: "/metrics" 

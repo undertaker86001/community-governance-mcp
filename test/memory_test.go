@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"community-governance-mcp-higress/internal/memory"
+	"github.com/community-governance-mcp-higress/internal/memory"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"community-governance-mcp/config"
-	"community-governance-mcp/intent"
-	"community-governance-mcp/test"
-	"community-governance-mcp/tools"
+	"github.com/community-governance-mcp-higress/config"
+	"github.com/community-governance-mcp-higress/intent"
+	"github.com/community-governance-mcp-higress/test"
+	"github.com/community-governance-mcp-higress/tools"
 	"log"
 	"net/http"
 	"os"

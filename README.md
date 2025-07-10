@@ -1,344 +1,424 @@
-# Higress社区治理智能助手
+# Community Governance MCP Higress
 
-## 项目概述
+一个融合了DeepWiki知识检索和Higress社区治理工具的智能助手项目，基于MCP协议，提供智能问答、问题分析、社区统计等功能，并集成了Google API实现Agent与维护者的邮件交流功能。
 
-这是一个融合了DeepWiki知识检索能力和Higress社区治理工具的智能助手系统。系统基于MCP（Model Context Protocol）协议，提供智能问答、问题分析、社区统计等功能，专门为Higress社区治理设计。
+## 功能特性
 
-## 核心功能
+### 核心功能
+- **智能问答**: 基于DeepWiki知识库的智能问答系统
+- **问题分析**: 自动分析GitHub Issue，识别问题类型和优先级
+- **社区统计**: 提供社区活跃度、贡献者统计等数据分析
+- **Google API集成**: Agent作为Google账号加入私有邮件组，与维护者交流
+- **多问题并行处理**: 支持同时处理多个Issue，每个Issue创建独立的邮件会话
+- **邮件会话管理**: 维护Issue与邮件会话的映射关系，跟踪处理状态
+- **自动回复生成**: 基于维护者回复自动生成Issue回复内容
 
-### 1. 智能问答系统
-- **多源知识检索**: 从DeepWiki、Higress文档、本地知识库等多个来源检索信息
-- **知识融合**: 智能融合多源信息，提供准确、全面的回答
-- **上下文理解**: 理解用户问题的上下文和意图
-- **问题分类**: 自动识别问题类型（Issue、PR、文本问题等）
+### 技术特性
+- **MCP协议**: 基于Model Context Protocol的标准化接口
+- **模块化架构**: 清晰的模块分离和依赖管理
+- **容器化部署**: 支持Docker容器化部署
+- **Google Gmail API**: 发送和接收邮件，管理邮件会话
+- **Google Groups API**: 管理邮件组成员，获取组信息
+- **实时监听**: 监听邮件变化，及时处理新邮件
+- **状态跟踪**: 完整的Issue处理状态跟踪和统计
+- **数据备份**: 支持数据导出、导入和备份功能
 
-### 2. 社区治理工具
-- **问题分类器**: 自动分类GitHub Issues和Pull Requests
-- **Bug分析器**: 分析错误堆栈，提供诊断建议
-- **图片分析器**: 分析截图和错误图片
-- **GitHub管理器**: 管理GitHub仓库和Issue
-- **社区统计**: 生成社区活跃度统计报告
-- **知识库管理**: 本地化存储和管理常用问题和解决方案
+## 项目架构
 
-### 3. 知识库管理
-- **知识存储**: 本地化存储常用问题和解决方案
-- **知识更新**: 定期更新知识库内容
-- **知识检索**: 快速检索相关知识和解决方案
-- **知识融合**: 智能融合多源知识
-
-### 4. 多轮会话记忆管理
-- **工作记忆**: 存储最近20个重要问题和上下文，生存时间30分钟
-- **短期记忆**: 16个记忆槽存储用户交互历史，生存时间2小时
-- **记忆检索**: 基于关键词和标签智能检索相关记忆
-- **记忆融合**: 将历史记忆融入当前问题的处理中
-- **自动清理**: 定期清理过期记忆，优化内存使用
-
-## 系统架构
-
+### 整体架构
 ```
-community-governance-mcp-higress/
-├── cmd/                    # 命令行工具
-│   └── agent/             # 主服务程序
-├── internal/              # 内部核心模块
-│   ├── agent/            # 智能代理核心
-│   │   ├── processor.go  # 问题处理器
-│   │   └── types.go      # 核心类型定义
-│   ├── openai/           # OpenAI客户端
-│   └── memory/           # 记忆组件
-│       ├── types.go      # 记忆类型定义
-│       ├── manager.go    # 记忆管理器
-│       └── handler.go    # 记忆HTTP处理器
-├── tools/                # 社区治理工具
-│   ├── bug_analyzer.go   # Bug分析器
-│   ├── community_stats.go # 社区统计
-│   ├── github_manager.go # GitHub管理器
-│   ├── image_analyzer.go # 图片分析器
-│   ├── issue_classifier.go # 问题分类器
-│   ├── knowledge_base.go # 知识库管理
-│   └── load_tools.go     # 工具加载器
-├── configs/              # 配置文件
-│   └── config.yaml       # 主配置文件
-├── docs/                 # 文档
-├── test/                 # 测试文件
-└── utils/                # 工具函数
+Community Governance MCP Higress
+├── 服务层 (Service Layer)
+│   ├── Agent服务
+│   ├── 知识检索服务
+│   ├── 社区治理服务
+│   └── Google API服务
+├── 处理器层 (Processor Layer)
+│   ├── 请求处理器
+│   ├── 响应处理器
+│   ├── 错误处理器
+│   └── 日志处理器
+├── 工具层 (Tools Layer)
+│   ├── 知识库工具
+│   ├── 社区统计工具
+│   ├── GitHub管理工具
+│   └── Google API工具
+├── 数据层 (Data Layer)
+│   ├── 内存存储
+│   ├── 文件存储
+│   └── 外部API
+└── 配置层 (Config Layer)
+    ├── 应用配置
+    ├── API配置
+    └── 环境配置
 ```
+
+### 数据流
+1. **请求接收** → 2. **请求解析** → 3. **工具选择** → 4. **执行处理** → 5. **响应生成** → 6. **返回结果**
+
+### 知识融合流程
+1. **知识检索** → 2. **内容分析** → 3. **知识整合** → 4. **结果优化** → 5. **输出展示**
+
+### 工具集成架构
+```
+工具管理器
+├── 知识库工具
+│   ├── 文档检索
+│   ├── 内容分析
+│   └── 知识更新
+├── 社区治理工具
+│   ├── 问题分类
+│   ├── 统计分析
+│   └── 报告生成
+├── GitHub管理工具
+│   ├── Issue管理
+│   ├── PR处理
+│   └── 仓库监控
+└── Google API工具
+    ├── Gmail客户端
+    ├── Groups客户端
+    └── 邮件管理器
+```
+
+### 配置管理架构
+```
+配置系统
+├── 应用配置
+│   ├── 服务端口
+│   ├── 日志级别
+│   └── 超时设置
+├── API配置
+│   ├── OpenAI配置
+│   ├── GitHub配置
+│   └── Google API配置
+├── 工具配置
+│   ├── 知识库配置
+│   ├── 社区配置
+│   └── 邮件配置
+└── 环境配置
+    ├── 开发环境
+    ├── 测试环境
+    └── 生产环境
+```
+
+### 部署架构
+```
+容器化部署
+├── 应用容器
+│   ├── 主服务
+│   ├── API服务
+│   └── 监控服务
+├── 数据容器
+│   ├── 配置存储
+│   ├── 日志存储
+│   └── 缓存存储
+├── 网络配置
+│   ├── 服务发现
+│   ├── 负载均衡
+│   └── 安全策略
+└── 监控系统
+    ├── 健康检查
+    ├── 性能监控
+    └── 告警通知
+```
+
+## 核心组件
+
+### Agent服务
+- **智能问答**: 基于OpenAI的智能问答能力
+- **工具调用**: 动态加载和执行各种工具
+- **会话管理**: 支持多轮对话和上下文记忆
+- **错误处理**: 完善的错误处理和恢复机制
+
+### 知识检索服务
+- **DeepWiki集成**: 集成DeepWiki知识库
+- **内容检索**: 高效的文档检索和内容匹配
+- **知识更新**: 支持知识库的动态更新
+- **缓存优化**: 智能缓存机制提升性能
+
+### 社区治理服务
+- **问题分析**: 自动分析GitHub Issue和PR
+- **统计分析**: 社区活跃度和贡献者统计
+- **报告生成**: 自动生成社区治理报告
+- **趋势预测**: 基于历史数据的趋势分析
+
+### Google API服务
+- **Gmail集成**: 发送和接收邮件
+- **Groups管理**: 管理邮件组成员
+- **会话跟踪**: 维护Issue与邮件的映射关系
+- **状态管理**: 完整的处理状态跟踪
 
 ## 快速开始
 
 ### 环境要求
 - Go 1.21+
-- OpenAI API Key
-- GitHub Token (可选)
+- Docker (可选)
+- Google Cloud项目 (用于Google API)
 
-### 安装和运行
-
-1. **克隆项目**
+### 安装依赖
 ```bash
-git clone <repository-url>
-cd community-governance-mcp-higress
+go mod download
 ```
 
-2. **配置环境变量**
+### 配置设置
+1. 复制配置文件模板
 ```bash
-cp .env.example .env
-# 编辑.env文件，填入必要的API密钥
+cp configs/config.yaml.example configs/config.yaml
 ```
 
-3. **安装依赖**
+2. 配置Google API凭证
 ```bash
-go mod tidy
+# 下载Google服务账号凭证文件
+# 重命名为 credentials.json 并放置在项目根目录
 ```
 
-4. **运行服务**
-```bash
-# 方式1: 直接运行
-go run cmd/agent/main.go
-
-# 方式2: 使用Makefile
-make run
-
-# 方式3: 使用Docker
-docker-compose up
+3. 更新配置文件
+```yaml
+# configs/config.yaml
+google:
+  gmail:
+    credentials_file: "credentials.json"
+    group_email: "your-maintainers@example.com"
+  groups:
+    admin_email: "your-admin@example.com"
+    group_key: "your-group@example.com"
 ```
 
-服务将在 `http://localhost:8080` 启动
+### 启动服务
+```bash
+# 开发模式
+go run main.go
+
+# 生产模式
+make build
+./bin/community-governance-mcp-higress
+
+# Docker模式
+docker-compose up -d
+```
+
+### 测试功能
+```bash
+# 测试Google API集成
+curl -X POST http://localhost:8080/api/google/issues \
+  -H "Content-Type: application/json" \
+  -d '{
+    "issue_id": "123",
+    "issue_url": "https://github.com/test/repo/issues/123",
+    "issue_title": "Bug Report",
+    "issue_content": "This is a bug description"
+  }'
+
+# 获取统计信息
+curl http://localhost:8080/api/google/stats
+```
 
 ## API接口
 
-### 1. 智能问答接口
+### 核心API
+- `POST /api/chat` - 智能问答
+- `GET /api/tools` - 获取可用工具列表
+- `POST /api/tools/{tool}` - 执行特定工具
 
-**POST** `/api/v1/process`
+### Google API接口
+- `POST /api/google/issues` - 处理GitHub Issue
+- `GET /api/google/issues` - 获取Issue列表
+- `POST /api/google/emails/send` - 发送邮件
+- `POST /api/google/emails/sync` - 同步邮件
+- `GET /api/google/stats` - 获取统计信息
 
-处理用户问题，返回智能回答。
-
-**请求示例:**
-```json
-{
-  "title": "Higress网关配置问题",
-  "content": "如何配置Higress网关的路由规则？",
-  "author": "user123",
-  "type": "question",
-  "priority": "normal",
-  "tags": ["gateway", "configuration"]
-}
-```
-
-**响应示例:**
-```json
-{
-  "id": "uuid",
-  "question_id": "uuid",
-  "content": "详细的回答内容...",
-  "summary": "回答摘要",
-  "sources": [
-    {
-      "title": "Higress官方文档",
-      "url": "https://higress.io/docs",
-      "relevance": 0.95
-    }
-  ],
-  "confidence": 0.92,
-  "processing_time": "1.2s",
-  "fusion_score": 0.88,
-  "recommendations": ["建议1", "建议2"]
-}
-```
-
-### 2. 问题分析接口
-
-**POST** `/api/v1/analyze`
-
-分析错误堆栈和问题信息。
-
-**请求示例:**
-```json
-{
-  "stack_trace": "错误堆栈信息...",
-  "environment": "Kubernetes 1.24",
-  "version": "Higress 1.0.0"
-}
-```
-
-### 3. 社区统计接口
-
-**GET** `/api/v1/stats`
-
-获取社区活跃度统计。
-
-### 4. 健康检查
-
-**GET** `/api/v1/health`
-
-检查服务状态。
-
-### 5. 记忆管理接口
-
-#### 存储记忆
-**POST** `/api/v1/memory/store`
-
-存储用户交互记忆。
-
-**请求示例:**
-```json
-{
-  "session_id": "session_123",
-  "user_id": "user_456",
-  "type": "working",
-  "content": "用户询问了关于Higress网关配置的问题",
-  "context": "网关配置相关",
-  "tags": ["gateway", "config"],
-  "metadata": {"priority": "high"}
-}
-```
-
-#### 检索记忆
-**POST** `/api/v1/memory/retrieve`
-
-检索相关记忆。
-
-**请求示例:**
-```json
-{
-  "session_id": "session_123",
-  "user_id": "user_456",
-  "type": "working",
-  "keywords": ["gateway", "config"],
-  "limit": 5
-}
-```
-
-#### 获取记忆统计
-**GET** `/api/v1/memory/stats/:session_id`
-
-获取记忆使用统计。
-
-#### 清除记忆
-**DELETE** `/api/v1/memory/clear/:session_id`
-
-清除指定会话的记忆。
+### 监控接口
+- `GET /health` - 健康检查
+- `GET /metrics` - 性能指标
 
 ## 配置说明
 
 ### 主要配置项
-
 ```yaml
-# Agent基础配置
-agent:
-  name: "higress-community-agent"
-  version: "1.0.0"
+# 服务配置
+server:
   port: 8080
-  debug: true
+  host: "0.0.0.0"
 
 # OpenAI配置
 openai:
-  api_key: "${OPENAI_API_KEY}"
-  model: "gpt-4o"
-  max_tokens: 4000
-  temperature: 0.7
+  api_key: "your-openai-api-key"
+  model: "gpt-4"
+  max_tokens: 4096
 
-# DeepWiki配置
-deepwiki:
-  enabled: true
-  endpoint: "https://mcp.deepwiki.com/mcp"
-  timeout: "30s"
+# Google API配置
+google:
+  gmail:
+    credentials_file: "credentials.json"
+    group_email: "maintainers@example.com"
+  groups:
+    admin_email: "admin@example.com"
+    group_key: "maintainers@example.com"
 
-# 知识库配置
-knowledge:
-  enabled: true
-  storage_path: "./data/knowledge"
-  max_size: "1GB"
-
-# 记忆组件配置
-memory:
-  working_memory_max_items: 20
-  working_memory_ttl: "30m"
-  short_term_memory_slots: 16
-  short_term_memory_ttl: "2h"
-  cleanup_interval: "5m"
-  importance_threshold: 0.3
+# 工具配置
+tools:
+  knowledge_base:
+    enabled: true
+    cache_size: 1000
+  community_stats:
+    enabled: true
+    update_interval: 3600
 ```
-
-## 工具说明
-
-### 1. Bug分析器 (bug_analyzer.go)
-- 分析错误堆栈信息
-- 提供诊断建议
-- 生成修复方案
-
-### 2. 问题分类器 (issue_classifier.go)
-- 自动分类GitHub Issues
-- 识别问题类型和优先级
-- 分配处理人员
-
-### 3. 图片分析器 (image_analyzer.go)
-- 分析错误截图
-- 识别界面问题
-- 提供可视化建议
-
-### 4. GitHub管理器 (github_manager.go)
-- 管理GitHub仓库
-- 自动化Issue处理
-- 社区协作支持
-
-### 5. 社区统计 (community_stats.go)
-- 生成社区活跃度报告
-- 分析贡献者数据
-- 监控项目健康度
-
-### 6. 知识库管理 (knowledge_base.go)
-- 本地知识存储
-- 知识检索和更新
-- 知识融合支持
 
 ## 开发指南
 
+### 项目结构
+```
+community-governance-mcp-higress/
+├── cmd/                    # 命令行工具
+├── config/                 # 配置管理
+├── configs/                # 配置文件
+├── internal/               # 内部包
+│   ├── agent/             # Agent核心
+│   ├── google/            # Google API集成
+│   ├── knowledge/         # 知识库
+│   └── openai/            # OpenAI客户端
+├── tools/                  # 工具集合
+├── test/                   # 测试文件
+├── docs/                   # 文档
+└── examples/               # 示例配置
+```
+
 ### 添加新工具
-
-1. 在 `tools/` 目录下创建新的工具文件
-2. 实现工具的核心功能
+1. 在 `tools/` 目录下创建新工具文件
+2. 实现工具接口
 3. 在 `tools/load_tools.go` 中注册工具
-4. 更新配置文件和文档
+4. 添加测试用例
 
-### 测试
+### 扩展Google API功能
+1. 在 `internal/google/` 目录下添加新功能
+2. 更新类型定义和处理器
+3. 添加配置项
+4. 编写测试用例
 
+## 部署指南
+
+### Docker部署
 ```bash
-# 运行所有测试
-make test
+# 构建镜像
+docker build -t community-governance-mcp-higress .
 
-# 运行特定测试
-go test ./test/...
-
-# 运行集成测试
-go test ./test/integration_test.go
+# 运行容器
+docker run -d \
+  -p 8080:8080 \
+  -v $(pwd)/configs:/app/configs \
+  -v $(pwd)/credentials.json:/app/credentials.json \
+  community-governance-mcp-higress
 ```
 
-### 构建
-
-```bash
-# 构建二进制文件
-make build
-
-# 构建Docker镜像
-make docker-build
-
-# 发布
-make release
+### Kubernetes部署
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-governance-mcp-higress
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: community-governance-mcp-higress
+  template:
+    metadata:
+      labels:
+        app: community-governance-mcp-higress
+    spec:
+      containers:
+      - name: app
+        image: community-governance-mcp-higress:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: CONFIG_FILE
+          value: "/app/configs/config.yaml"
+        volumeMounts:
+        - name: config
+          mountPath: /app/configs
+        - name: credentials
+          mountPath: /app/credentials.json
+          subPath: credentials.json
+      volumes:
+      - name: config
+        configMap:
+          name: app-config
+      - name: credentials
+        secret:
+          secretName: google-credentials
 ```
+
+## 监控和维护
+
+### 健康检查
+```bash
+curl http://localhost:8080/health
+```
+
+### 性能监控
+```bash
+curl http://localhost:8080/metrics
+```
+
+### 日志查看
+```bash
+# 查看应用日志
+docker logs community-governance-mcp-higress
+
+# 查看Google API日志
+tail -f logs/google_api.log
+```
+
+## 故障排除
+
+### 常见问题
+1. **Google API认证失败**: 检查凭证文件和服务账号权限
+2. **邮件发送失败**: 验证Gmail API配置和权限
+3. **工具加载失败**: 检查工具配置和依赖
+4. **性能问题**: 优化缓存和并发设置
+
+### 调试方法
+1. 启用详细日志
+2. 使用API测试工具
+3. 检查网络连接
+4. 验证配置文件格式
 
 ## 贡献指南
 
-1. Fork 项目
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开 Pull Request
+### 开发流程
+1. Fork项目
+2. 创建功能分支
+3. 编写代码和测试
+4. 提交Pull Request
+5. 代码审查和合并
+
+### 代码规范
+- 使用Go标准格式化
+- 编写完整的注释
+- 添加单元测试
+- 遵循项目结构约定
 
 ## 许可证
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+本项目采用MIT许可证，详见LICENSE文件。
 
-## 联系方式
+## 更新日志
 
-- 项目主页: [GitHub Repository](https://github.com/your-org/community-governance-mcp-higress)
-- 问题反馈: [Issues](https://github.com/your-org/community-governance-mcp-higress/issues)
-- 讨论区: [Discussions](https://github.com/your-org/community-governance-mcp-higress/discussions)  
+### v1.0.0 (2024-01-01)
+- 初始版本发布
+- 集成DeepWiki知识检索
+- 实现社区治理工具
+- 添加Google API集成
+- 支持邮件组交流功能
+- 实现多问题并行处理
+- 添加完整的监控和日志系统
+
+### 计划功能
+- 支持更多邮件服务商
+- 集成更多Issue平台
+- 添加机器学习分析
+- 支持多语言处理
+- 实现Web管理界面
+- 支持集群部署  

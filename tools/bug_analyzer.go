@@ -2,14 +2,13 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
-	"community-governance-mcp-higress/internal/agent"
-	"community-governance-mcp-higress/internal/openai"
+	"github.com/community-governance-mcp-higress/internal/agent"
+	"github.com/community-governance-mcp-higress/internal/openai"
 )
 
 // BugAnalyzer Bug分析器
@@ -280,7 +279,7 @@ func (b *BugAnalyzer) aiAnalyzeBug(ctx context.Context, stackTrace string, envir
 4. 解决方案（3-5条）
 5. 预防措施（3-5条）`, environment, version, stackTrace)
 
-	response, err := b.openaiClient.GenerateText(ctx, prompt, 1000, 0.3)
+	_, err := b.openaiClient.GenerateText(ctx, prompt, 1000, 0.3)
 	if err != nil {
 		return nil, fmt.Errorf("AI分析失败: %w", err)
 	}

@@ -61,25 +61,21 @@ type KnowledgeItem struct {
 	Metadata  map[string]interface{} `json:"metadata"`   // 元数据
 }
 
-// Answer 回答结构体
+// Answer 智能回答结构体
 type Answer struct {
-	ID         string                 `json:"id"`          // 回答ID
-	QuestionID string                 `json:"question_id"` // 对应问题ID
-	Content    string                 `json:"content"`     // 回答内容
-	Summary    string                 `json:"summary"`     // 回答摘要
-	Sources    []KnowledgeItem        `json:"sources"`     // 知识来源
-	Confidence float64                `json:"confidence"`  // 置信度
-	CreatedAt  time.Time              `json:"created_at"`  // 创建时间
-	Metadata   map[string]interface{} `json:"metadata"`    // 元数据
+	Content     string          `json:"content"`      // 回答内容
+	Summary     string          `json:"summary"`      // 回答摘要
+	Sources     []KnowledgeItem `json:"sources"`      // 参考知识源
+	Confidence  float64         `json:"confidence"`   // 置信度
+	FusionScore float64         `json:"fusion_score"` // 融合得分
 }
 
 // FusionResult 知识融合结果
+// 用于多源知识融合后的中间结果
 type FusionResult struct {
-	Question       *Question       `json:"question"`        // 原始问题
-	Answer         *Answer         `json:"answer"`          // 融合后的回答
-	Sources        []KnowledgeItem `json:"sources"`         // 所有知识源
-	FusionScore    float64         `json:"fusion_score"`    // 融合质量分数
-	ProcessingTime time.Duration   `json:"processing_time"` // 处理时间
+	Sources     []KnowledgeItem `json:"sources"`      // 融合后的知识源
+	FusionScore float64         `json:"fusion_score"` // 融合得分
+	Context     string          `json:"context"`      // 相关上下文
 }
 
 // ProcessRequest 处理请求结构体
@@ -154,6 +150,56 @@ type ActivityData struct {
 	Issues   int    `json:"issues"`   // Issue数
 	PRs      int    `json:"prs"`      // PR数
 	Comments int    `json:"comments"` // 评论数
+}
+
+// AnalyzeRequest 问题分析请求
+// 用于Bug分析、图片分析、Issue分类等
+type AnalyzeRequest struct {
+	IssueType  string   `json:"issue_type"`  // 问题类型（bug、image、issue等）
+	Content    string   `json:"content"`     // 问题内容
+	StackTrace string   `json:"stack_trace"` // 错误堆栈
+	ImageURL   string   `json:"image_url"`   // 图片URL
+	Title      string   `json:"title"`       // 标题
+	Assignees  []string `json:"assignees"`   // 预分配人
+	Tags       []string `json:"tags"`        // 标签
+	Priority   string   `json:"priority"`    // 优先级
+}
+
+// AnalyzeResponse 问题分析响应
+type AnalyzeResponse struct {
+	ID             string   `json:"id"`                 // 分析ID
+	ProblemType    string   `json:"problem_type"`       // 问题类型
+	Severity       string   `json:"severity,omitempty"` // 严重程度
+	Diagnosis      string   `json:"diagnosis"`          // 诊断结果
+	Solutions      []string `json:"solutions"`          // 解决方案
+	Confidence     float64  `json:"confidence"`         // 置信度
+	ProcessingTime string   `json:"processing_time"`    // 分析耗时
+}
+
+// 修正BugAnalysis结构体字段名
+// BugAnalysis Bug分析结果
+type BugAnalysis struct {
+	Severity   string   `json:"severity"`   // 严重程度
+	RootCause  string   `json:"root_cause"` // 根因
+	Solutions  []string `json:"solutions"`  // 解决方案
+	Prevention []string `json:"prevention"` // 预防建议
+	Confidence float64  `json:"confidence"` // 置信度
+	// ErrorType 和 Language 字段移除
+}
+
+// ImageAnalysis 图片分析结果
+type ImageAnalysis struct {
+	ErrorMessages []string `json:"error_messages"` // 错误信息
+	Suggestions   []string `json:"suggestions"`    // 建议
+	Confidence    float64  `json:"confidence"`     // 置信度
+}
+
+// IssueClassification Issue分类结果
+type IssueClassification struct {
+	Category   string   `json:"category"`   // 分类（bug/feature/文档等）
+	Priority   string   `json:"priority"`   // 优先级
+	Assignees  []string `json:"assignees"`  // 推荐分配人
+	Confidence float64  `json:"confidence"` // 置信度
 }
 
 // AgentConfig Agent配置结构体

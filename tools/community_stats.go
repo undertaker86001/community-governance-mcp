@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"community-governance-mcp-higress/internal/agent"
+	"github.com/community-governance-mcp-higress/internal/agent"
+	"github.com/higress-group/wasm-go/pkg/mcp/server"
+	"github.com/higress-group/wasm-go/pkg/mcp/utils"
 )
 
 // CommunityStats 社区统计工具
@@ -32,7 +34,6 @@ func NewCommunityStats(githubToken string) *CommunityStats {
 func (c *CommunityStats) GetCommunityStats(owner string, repo string, period string) (*agent.CommunityStats, error) {
 	stats := &agent.CommunityStats{
 		Period:          period,
-		GeneratedAt:     time.Now(),
 		TopContributors: []agent.Contributor{},
 		ActivityTrend:   []agent.ActivityData{},
 		Metadata:        make(map[string]interface{}),
@@ -79,8 +80,8 @@ func (c *CommunityStats) GetCommunityStats(owner string, repo string, period str
 
 // IssueStats Issue统计
 type IssueStats struct {
-	Total int `json:"total"`
-	Open  int `json:"open"`
+	Total  int `json:"total"`
+	Open   int `json:"open"`
 	Closed int `json:"closed"`
 }
 
@@ -94,7 +95,7 @@ type PRStats struct {
 // getIssueStats 获取Issue统计
 func (c *CommunityStats) getIssueStats(owner string, repo string) (*IssueStats, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues?state=all&per_page=100", owner, repo)
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -138,7 +139,7 @@ func (c *CommunityStats) getIssueStats(owner string, repo string) (*IssueStats, 
 // getPRStats 获取PR统计
 func (c *CommunityStats) getPRStats(owner string, repo string) (*PRStats, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls?state=all&per_page=100", owner, repo)
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -182,7 +183,7 @@ func (c *CommunityStats) getPRStats(owner string, repo string) (*PRStats, error)
 // getContributors 获取贡献者信息
 func (c *CommunityStats) getContributors(owner string, repo string) ([]agent.Contributor, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contributors?per_page=10", owner, repo)
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -215,10 +216,10 @@ func (c *CommunityStats) getContributors(owner string, repo string) ([]agent.Con
 		contributions, _ := contributor["contributions"].(float64)
 
 		result = append(result, agent.Contributor{
-			Username:     username,
-			AvatarURL:    avatarURL,
+			Username:      username,
+			AvatarURL:     avatarURL,
 			Contributions: int(contributions),
-			LastActive:   time.Now().Format("2006-01-02"),
+			LastActive:    time.Now().Format("2006-01-02"),
 		})
 	}
 
@@ -304,7 +305,7 @@ func (c *CommunityStats) calculateHealthScore(stats *agent.CommunityStats) float
 // GetRepositoryInfo 获取仓库信息
 func (c *CommunityStats) GetRepositoryInfo(owner string, repo string) (map[string]interface{}, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo)
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -336,7 +337,7 @@ func (c *CommunityStats) GetRepositoryInfo(owner string, repo string) (map[strin
 // GetRecentActivity 获取最近活动
 func (c *CommunityStats) GetRecentActivity(owner string, repo string, days int) ([]map[string]interface{}, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/events?per_page=100", owner, repo)
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -365,7 +366,7 @@ func (c *CommunityStats) GetRecentActivity(owner string, repo string, days int) 
 	// 过滤最近的活动
 	cutoffTime := time.Now().AddDate(0, 0, -days)
 	var recentEvents []map[string]interface{}
-	
+
 	for _, event := range events {
 		if createdAt, ok := event["created_at"].(string); ok {
 			if eventTime, err := time.Parse(time.RFC3339, createdAt); err == nil {

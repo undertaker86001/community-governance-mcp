@@ -1,15 +1,16 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
-	"community-governance-mcp/config"
-	mcp_tool "community-governance-mcp/utils"
+	"github.com/community-governance-mcp-higress/config"
+	"github.com/community-governance-mcp-higress/internal/agent"
+	"github.com/community-governance-mcp-higress/utils"
 	"github.com/higress-group/wasm-go/pkg/mcp/server"
-	"github.com/higress-group/wasm-go/pkg/mcp/utils"
 )
 
 type IssueClassifier struct {
@@ -67,7 +68,7 @@ func (t IssueClassifier) Call(ctx server.HttpContext, s server.Server) error {
 		t.IssueTitle,
 		strings.Join(finalLabels, ", "))
 
-	utils.SendMCPToolTextResult(ctx, result)
+	utils.SendMCPToolTextResult(ctx, "IssueClassifier", result, true)
 	return nil
 }
 
@@ -151,7 +152,7 @@ func (t IssueClassifier) aiClassifyIssue(ctx server.HttpContext, config *config.
 		"Content-Type":  "application/json",
 	}
 
-	response, err := mcp_tool.SendHTTPRequest(ctx, "POST", "https://api.openai.com/v1/chat/completions", headers, string(bodyBytes))
+	response, err := utils.SendHTTPRequest(ctx, "POST", "https://api.openai.com/v1/chat/completions", headers, string(bodyBytes))
 	if err != nil {
 		return nil, err
 	}

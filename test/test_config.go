@@ -1,10 +1,10 @@
 package test
 
 import (
-	"community-governance-mcp-higress/config"
-	"community-governance-mcp-higress/intent"
 	"encoding/json"
 	"fmt"
+	"github.com/community-governance-mcp-higress/config"
+	"github.com/community-governance-mcp-higress/intent"
 	"github.com/higress-group/wasm-go/pkg/mcp"
 	"log"
 	"net/http"

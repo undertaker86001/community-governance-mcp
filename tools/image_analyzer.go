@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"community-governance-mcp-higress/internal/agent"
-	"community-governance-mcp-higress/internal/openai"
+	"github.com/community-governance-mcp-higress/internal/agent"
+	"github.com/community-governance-mcp-higress/internal/openai"
 )
 
 // ImageAnalyzer 图片分析器
@@ -98,10 +98,10 @@ func (c *ImageAnalyzer) aiAnalyzeImage(ctx context.Context, imageURL string) (*a
 // parseAIResponse 解析AI响应
 func (c *ImageAnalyzer) parseAIResponse(response string) *agent.ImageAnalysisResult {
 	analysis := &agent.ImageAnalysisResult{
-		Description:  "图片分析结果",
-		Issues:       []string{},
-		Suggestions:  []string{},
-		Confidence:   0.8,
+		Description: "图片分析结果",
+		Issues:      []string{},
+		Suggestions: []string{},
+		Confidence:  0.8,
 	}
 
 	// 简单的响应解析逻辑
@@ -173,7 +173,7 @@ func (c *ImageAnalyzer) AnalyzeScreenshot(imageURL string) (*agent.ImageAnalysis
 
 	// 添加截图特定的分析
 	analysis.Description += " (截图分析)"
-	
+
 	// 检查是否包含常见的截图问题
 	screenshotIssues := c.detectScreenshotIssues(imageURL)
 	analysis.Issues = append(analysis.Issues, screenshotIssues...)
@@ -248,10 +248,10 @@ func (c *ImageAnalyzer) GetImageInfo(imageURL string) (map[string]interface{}, e
 	defer resp.Body.Close()
 
 	info := map[string]interface{}{
-		"url":           imageURL,
-		"content_type":  resp.Header.Get("Content-Type"),
+		"url":            imageURL,
+		"content_type":   resp.Header.Get("Content-Type"),
 		"content_length": resp.Header.Get("Content-Length"),
-		"last_modified": resp.Header.Get("Last-Modified"),
+		"last_modified":  resp.Header.Get("Last-Modified"),
 	}
 
 	return info, nil

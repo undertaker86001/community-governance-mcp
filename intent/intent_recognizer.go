@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"community-governance-mcp/config"
+	"github.com/community-governance-mcp-higress/config"
 )
 
 type IntentRecognizer struct {
