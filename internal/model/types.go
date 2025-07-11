@@ -206,19 +206,24 @@ type IssueClassification struct {
 
 // AgentConfig Agent配置结构体
 type AgentConfig struct {
-	Name      string          `json:"name"`      // Agent名称
-	Version   string          `json:"version"`   // 版本号
-	Port      int             `json:"port"`      // 服务端口
-	Debug     bool            `json:"debug"`     // 调试模式
-	OpenAI    OpenAIConfig    `json:"openai"`    // OpenAI配置
-	DeepWiki  DeepWikiConfig  `json:"deepwiki"`  // DeepWiki配置
-	Higress   HigressConfig   `json:"higress"`   // Higress配置
-	GitHub    GitHubConfig    `json:"github"`    // GitHub配置
-	Knowledge KnowledgeConfig `json:"knowledge"` // 知识库配置
-	Fusion    FusionConfig    `json:"fusion"`    // 融合配置
-	Logging   LoggingConfig   `json:"logging"`   // 日志配置
-	Memory    MemoryConfig    `json:"memory"`    // 记忆组件配置
-	Network   NetworkConfig   `json:"network"`   // 网络配置
+	Agent     AgentInfo        `json:"agent"`     // Agent基础信息
+	OpenAI    OpenAIConfig     `json:"openai"`    // OpenAI配置
+	DeepWiki  DeepWikiConfig   `json:"deepwiki"`  // DeepWiki配置
+	Higress   HigressConfig    `json:"higress"`   // Higress配置
+	GitHub    GitHubConfig     `json:"github"`    // GitHub配置
+	Knowledge KnowledgeConfig  `json:"knowledge"` // 知识库配置
+	Fusion    FusionConfig     `json:"fusion"`    // 融合配置
+	Logging   LoggingConfig    `json:"logging"`   // 日志配置
+	Memory    MemoryConfig     `json:"memory"`    // 记忆组件配置
+	Network   NetworkConfig    `json:"network"`   // 网络配置
+}
+
+// AgentInfo Agent基础信息
+type AgentInfo struct {
+	Name    string `json:"name"`    // Agent名称
+	Version string `json:"version"`  // 版本号
+	Port    int    `json:"port"`    // 服务端口
+	Debug   bool   `json:"debug"`   // 调试模式
 }
 
 // OpenAIConfig OpenAI配置

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/community-governance-mcp-higress/internal/openai"
 	"github.com/community-governance-mcp-higress/tools"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -117,30 +119,30 @@ func (s *Server) handleProcess(c *gin.Context) {
 
 // handleAnalyze 处理问题分析请求
 func (s *Server) handleAnalyze(c *gin.Context) {
-	var request struct {
-		StackTrace  string `json:"stack_trace"`
-		Environment string `json:"environment"`
-		Version     string `json:"version"`
-		ImageURL    string `json:"image_url,omitempty"`
-	}
-
+	var request agent.AnalyzeRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "请求格式错误",
+			"error":   "请求参数错误",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 使用Bug分析器分析问题
+	analysis := &agent.AnalyzeResponse{
+		ID:          uuid.New().String(),
+		ProblemType: request.IssueType,
+		Diagnosis:   "问题分析中...",
+		Solutions:   []string{},
+		Confidence:  0.0,
+	}
+
+	// 使用Bug分析器
 	bugAnalyzer := tools.NewBugAnalyzer(s.config.OpenAI.APIKey)
-	analysis, err := bugAnalyzer.AnalyzeBug(request.StackTrace, request.Environment, request.Version)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "问题分析失败",
-			"message": err.Error(),
-		})
-		return
+	bugAnalysis, err := bugAnalyzer.AnalyzeBug(request.Content, request.StackTrace, "production")
+	if err == nil {
+		analysis.Diagnosis = bugAnalysis.RootCause
+		analysis.Solutions = bugAnalysis.Solutions
+		analysis.Confidence = 0.8 // 设置默认置信度
 	}
 
 	// 如果有图片，使用图片分析器
@@ -148,7 +150,13 @@ func (s *Server) handleAnalyze(c *gin.Context) {
 		imageAnalyzer := tools.NewImageAnalyzer(s.config.OpenAI.APIKey)
 		imageAnalysis, err := imageAnalyzer.AnalyzeImage(request.ImageURL)
 		if err == nil {
-			analysis.ImageAnalysis = imageAnalysis
+			// 将图片分析结果合并到诊断中
+			if len(imageAnalysis.Issues) > 0 {
+				analysis.Diagnosis += "\n图片分析发现的问题: " + strings.Join(imageAnalysis.Issues, ", ")
+			}
+			if len(imageAnalysis.Suggestions) > 0 {
+				analysis.Solutions = append(analysis.Solutions, imageAnalysis.Suggestions...)
+			}
 		}
 	}
 
@@ -181,7 +189,7 @@ func (s *Server) handleHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":    "healthy",
 		"timestamp": time.Now().Unix(),
-		"version":   s.config.Version,
+		"version":   s.config.Agent.Version,
 		"services": gin.H{
 			"openai":    "connected",
 			"deepwiki":  s.config.DeepWiki.Enabled,
@@ -194,10 +202,10 @@ func (s *Server) handleHealth(c *gin.Context) {
 func (s *Server) handleConfig(c *gin.Context) {
 	// 返回安全的配置信息（不包含敏感数据）
 	safeConfig := gin.H{
-		"name":    s.config.Name,
-		"version": s.config.Version,
-		"port":    s.config.Port,
-		"debug":   s.config.Debug,
+		"name":    s.config.Agent.Name,
+		"version": s.config.Agent.Version,
+		"port":    s.config.Agent.Port,
+		"debug":   s.config.Agent.Debug,
 		"features": gin.H{
 			"deepwiki_enabled":  s.config.DeepWiki.Enabled,
 			"knowledge_enabled": s.config.Knowledge.Enabled,
@@ -212,7 +220,7 @@ func (s *Server) handleConfig(c *gin.Context) {
 func (s *Server) handleRoot(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Higress社区治理Agent",
-		"version": s.config.Version,
+		"version": s.config.Agent.Version,
 		"docs":    "/api/v1/",
 		"features": []string{
 			"智能问答",
@@ -242,8 +250,8 @@ func (s *Server) validateRequest(request *agent.ProcessRequest) error {
 
 // Start 启动服务器
 func (s *Server) Start() error {
-	addr := fmt.Sprintf(":%d", s.config.Port)
-	s.logger.WithField("port", s.config.Port).Info("启动HTTP服务器")
+	addr := fmt.Sprintf(":%d", s.config.Agent.Port)
+	s.logger.WithField("port", s.config.Agent.Port).Info("启动HTTP服务器")
 
 	return s.router.Run(addr)
 }
@@ -269,6 +277,11 @@ func loadConfig() (*agent.AgentConfig, error) {
 		return nil, fmt.Errorf("解析配置失败: %w", err)
 	}
 
+	// 手动解析时间字段
+	if err := parseTimeFields(&config); err != nil {
+		return nil, fmt.Errorf("解析时间字段失败: %w", err)
+	}
+
 	// 从环境变量获取敏感信息
 	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
 		config.OpenAI.APIKey = apiKey
@@ -279,6 +292,22 @@ func loadConfig() (*agent.AgentConfig, error) {
 	}
 
 	return &config, nil
+}
+
+// parseTimeFields 解析时间字段
+func parseTimeFields(config *agent.AgentConfig) error {
+	// 解析记忆配置中的时间字段
+	if config.Memory.WorkingMemoryTTL == 0 {
+		config.Memory.WorkingMemoryTTL = 30 * time.Minute
+	}
+	if config.Memory.ShortTermMemoryTTL == 0 {
+		config.Memory.ShortTermMemoryTTL = 2 * time.Hour
+	}
+	if config.Memory.CleanupInterval == 0 {
+		config.Memory.CleanupInterval = 5 * time.Minute
+	}
+
+	return nil
 }
 
 // setupLogging 设置日志
