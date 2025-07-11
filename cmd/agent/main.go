@@ -308,7 +308,8 @@ func main() {
 	// 加载配置
 	config, err := loadConfig()
 	if err != nil {
-		log.Fatal("加载配置失败:", err)
+		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
+		os.Exit(1)
 	}
 
 	// 设置日志

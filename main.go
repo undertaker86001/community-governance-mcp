@@ -4,7 +4,6 @@ import (
 	"github.com/community-governance-mcp-higress/config"
 	"github.com/community-governance-mcp-higress/intent"
 	"github.com/community-governance-mcp-higress/test"
-	"github.com/community-governance-mcp-higress/tools"
 	"log"
 	"net/http"
 	"os"
@@ -44,7 +43,6 @@ func main() {
 
 	// 初始化 MCP 服务器
 	mcpServer := mcp.NewMCPServer()
-	tools.LoadTools(mcpServer)
 
 	// 初始化意图识别器
 	intentRecognizer := intent.NewIntentRecognizer(cfg)
