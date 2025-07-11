@@ -218,6 +218,7 @@ type AgentConfig struct {
 	Fusion    FusionConfig    `json:"fusion"`    // 融合配置
 	Logging   LoggingConfig   `json:"logging"`   // 日志配置
 	Memory    MemoryConfig    `json:"memory"`    // 记忆组件配置
+	Network   NetworkConfig   `json:"network"`   // 网络配置
 }
 
 // OpenAIConfig OpenAI配置
@@ -286,6 +287,13 @@ type LoggingConfig struct {
 	Format   string `json:"format"`
 	Output   string `json:"output"`
 	FilePath string `json:"file_path"`
+}
+
+// NetworkConfig 网络配置
+type NetworkConfig struct {
+	ProxyEnabled bool   `json:"proxy_enabled"` // 是否启用代理
+	ProxyURL     string `json:"proxy_url"`     // 代理URL
+	ProxyType    string `json:"proxy_type"`    // 代理类型 (http, https, socks5)
 }
 
 // Document 文档结构体

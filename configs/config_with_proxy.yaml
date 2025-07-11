@@ -1,4 +1,4 @@
-# Higress社区治理Agent配置文件
+# Higress社区治理Agent配置文件 - 启用代理版本
 
 # Agent基础配置
 agent:
@@ -115,8 +115,17 @@ memory:
   cleanup_interval: "5m"
   importance_threshold: 0.3
 
-# 网络配置
+# 网络配置 - 启用代理
 network:
-  proxy_enabled: false  # 是否启用代理
-  proxy_url: ""        # 代理URL (例如: http://proxy.example.com:8080)
-  proxy_type: "http"   # 代理类型 (http, https, socks5) 
+  proxy_enabled: true                    # 启用代理
+  proxy_url: "http://proxy.example.com:8080"  # 代理服务器地址
+  proxy_type: "http"                     # 代理类型 (http, https, socks5)
+
+# 代理配置说明：
+# - proxy_enabled: 设置为true启用代理，false禁用代理
+# - proxy_url: 代理服务器地址，支持以下格式：
+#   * HTTP代理: http://proxy.example.com:8080
+#   * HTTPS代理: https://proxy.example.com:8443
+#   * SOCKS5代理: socks5://proxy.example.com:1080
+#   * 带认证的代理: http://username:password@proxy.example.com:8080
+# - proxy_type: 代理类型，用于日志记录和调试 

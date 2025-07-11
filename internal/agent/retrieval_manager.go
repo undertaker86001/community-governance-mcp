@@ -5,28 +5,37 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/community-governance-mcp-higress/internal/model"
 	"github.com/sirupsen/logrus"
 )
 
 // RetrievalManager 检索管理器
 type RetrievalManager struct {
-	logger *logrus.Logger
-	client *http.Client
+	logger        *logrus.Logger
+	client        *http.Client
+	networkConfig *model.NetworkConfig
 }
 
 // NewRetrievalManager 创建新的检索管理器
-func NewRetrievalManager() *RetrievalManager {
+func NewRetrievalManager(networkConfig *model.NetworkConfig) *RetrievalManager {
 	// 配置HTTP客户端，处理网络限制
 	transport := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
 		DisableCompression:  true,
-		// 设置代理（如果需要）
-		// Proxy: http.ProxyURL(proxyURL),
+	}
+
+	// 如果启用了代理，配置代理
+	if networkConfig != nil && networkConfig.ProxyEnabled && networkConfig.ProxyURL != "" {
+		proxyURL, err := url.Parse(networkConfig.ProxyURL)
+		if err == nil {
+			transport.Proxy = http.ProxyURL(proxyURL)
+		}
 	}
 
 	client := &http.Client{
@@ -35,9 +44,15 @@ func NewRetrievalManager() *RetrievalManager {
 	}
 
 	return &RetrievalManager{
-		logger: logrus.New(),
-		client: client,
+		logger:        logrus.New(),
+		client:        client,
+		networkConfig: networkConfig,
 	}
+}
+
+// GetNetworkConfig 获取网络配置
+func (rm *RetrievalManager) GetNetworkConfig() *model.NetworkConfig {
+	return rm.networkConfig
 }
 
 // RetrievalConfig 检索配置

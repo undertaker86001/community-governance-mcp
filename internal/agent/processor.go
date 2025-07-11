@@ -41,8 +41,8 @@ func NewProcessor(openaiClient *openai.Client, config *AgentConfig) *Processor {
 	}
 	memoryManager := memory.NewManager(memoryConfig)
 
-	// 创建检索管理器
-	retrievalManager := NewRetrievalManager()
+	// 创建检索管理器，传递网络配置
+	retrievalManager := NewRetrievalManager(&config.Network)
 	networkHandler := NewNetworkLimitationHandler()
 	fallbackStrategy := NewFallbackStrategy()
 
