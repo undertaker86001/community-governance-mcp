@@ -77,7 +77,7 @@
 - **MCP集成**: 统一的MCP服务器集成支持
 
 ### MCP集成功能
-本项目支持集成远程MCP服务器，通过OpenAI Responses API调用外部工具和服务：
+本项目支持集成远程MCP服务器，通过统一的MCP管理器调用外部工具和服务：
 
 #### 支持的MCP服务器
 - **DeepWiki**: 查询GitHub仓库信息和文档
@@ -101,6 +101,11 @@ MCP集成层
     └── 工具调用接口
 ```
 
+#### API接口
+- `POST /api/v1/mcp/query` - 执行MCP查询
+- `POST /api/v1/mcp/tools` - 获取工具列表
+- `POST /api/v1/mcp/call` - 调用特定工具
+
 #### 使用示例
 ```bash
 # 查询GitHub仓库信息
@@ -110,6 +115,26 @@ curl -X POST http://localhost:8080/api/v1/mcp/query \
     "server_label": "deepwiki",
     "input": "What transport protocols are supported in the MCP spec?",
     "repo_name": "modelcontextprotocol/modelcontextprotocol"
+  }'
+
+# 获取工具列表
+curl -X POST http://localhost:8080/api/v1/mcp/tools \
+  -H "Content-Type: application/json" \
+  -d '{
+    "server_label": "deepwiki",
+    "server_url": "https://mcp.deepwiki.com/mcp"
+  }'
+
+# 调用特定工具
+curl -X POST http://localhost:8080/api/v1/mcp/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "server_label": "deepwiki",
+    "tool_name": "ask_question",
+    "arguments": {
+      "question": "What is the MCP protocol?",
+      "repo_name": "modelcontextprotocol/modelcontextprotocol"
+    }
   }'
 ```
 
@@ -128,6 +153,13 @@ mcp:
       require_approval: "never"
       allowed_tools: ["ask_question", "read_wiki_structure"]
 ```
+
+#### 特性
+- **统一管理**: 通过MCP管理器统一管理所有服务器
+- **备用方案**: MCP失败时自动切换到HTTP调用
+- **网络代理**: 支持代理配置解决网络访问问题
+- **健康检查**: 内置服务器健康状态监控
+- **错误处理**: 完整的错误处理和重试机制
 
 ### 技术特性
 - **MCP协议**: 基于Model Context Protocol的标准化接口
