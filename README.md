@@ -173,6 +173,186 @@ mcp:
 - **网络代理**: 支持代理配置，解决网络访问问题
 - **统一MCP管理**: 集中管理所有MCP服务器连接和配置
 
+### Google API集成功能
+本项目集成了Google API，实现了Agent作为Google账号加入私有邮件组，分析GitHub Issue，无法解决的问题通过邮件组与维护者交流，维护者回复后Agent理解并回复Issue的功能。
+
+#### 完整Issue处理流程
+```
+用户提出Issue → Agent分析 → 无法解决 → 发送邮件给维护者 → 维护者回复 → Agent理解回复 → 生成Issue回复 → 更新Issue状态
+```
+
+#### 核心功能
+- **GitHub Issue分析**: 自动分析GitHub Issue内容，判断是否可以自动解决
+- **邮件组集成**: Agent作为成员加入私有邮件组，与维护者进行交流
+- **多问题并行处理**: 支持同时处理多个Issue，每个Issue创建独立的邮件会话
+- **邮件会话管理**: 维护Issue与邮件会话的映射关系，跟踪处理状态
+- **自动回复生成**: 基于维护者回复自动生成Issue回复内容
+- **LLM/DeepWiki集成**: 结合LLM和DeepWiki进行深度分析和知识检索
+
+#### API接口
+- `POST /api/google/issues` - 处理GitHub Issue
+- `GET /api/google/issues` - 获取Issue列表
+- `POST /api/google/emails/send` - 发送邮件给维护者
+- `POST /api/google/emails/reply` - 处理维护者邮件回复
+- `GET /api/google/threads` - 获取邮件会话列表
+- `GET /api/google/stats` - 获取处理统计信息
+
+#### 完整流程示例
+
+##### 1. 用户提出Issue
+```bash
+# 用户创建GitHub Issue
+curl -X POST https://api.github.com/repos/alibaba/higress/issues \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Bug: Connection timeout in AI Gateway",
+    "body": "When using AI Gateway with large models, connections frequently timeout after 30 seconds. This happens especially with GPT-4 models."
+  }'
+```
+
+##### 2. Agent分析Issue
+```bash
+# Agent接收并分析Issue
+curl -X POST http://localhost:8080/api/google/issues \
+  -H "Content-Type: application/json" \
+  -d '{
+    "issue_id": "123",
+    "issue_url": "https://github.com/alibaba/higress/issues/123",
+    "issue_title": "Bug: Connection timeout in AI Gateway",
+    "issue_content": "When using AI Gateway with large models, connections frequently timeout after 30 seconds. This happens especially with GPT-4 models."
+  }'
+```
+
+**Agent分析结果**:
+```json
+{
+  "analysis": {
+    "can_resolve": false,
+    "priority": "high",
+    "tags": ["bug", "ai-gateway", "timeout"],
+    "summary": "需要维护者协助处理AI Gateway连接超时问题",
+    "requires_maintainer": true
+  }
+}
+```
+
+##### 3. Agent发送邮件给维护者
+```bash
+# Agent自动发送邮件给维护者邮件组
+curl -X POST http://localhost:8080/api/google/emails/send \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": ["maintainers@higress.io"],
+    "subject": "[Issue #123] Bug: Connection timeout in AI Gateway",
+    "content": "Issue详情:\n- URL: https://github.com/alibaba/higress/issues/123\n- 标题: Bug: Connection timeout in AI Gateway\n- 内容: When using AI Gateway with large models, connections frequently timeout after 30 seconds.\n- 优先级: high\n- 标签: [bug, ai-gateway, timeout]\n\n分析结果: 需要维护者协助处理AI Gateway连接超时问题\n\n请协助处理此Issue。",
+    "thread_id": ""
+  }'
+```
+
+##### 4. 维护者回复邮件
+```bash
+# 维护者通过邮件回复
+# 邮件内容: "这个问题是由于AI Gateway的默认超时设置过短导致的。建议将timeout配置从30秒增加到120秒，并在配置文件中添加retry机制。"
+```
+
+##### 5. Agent监听并处理邮件回复
+```bash
+# Agent监听邮件变化并处理回复
+curl -X POST http://localhost:8080/api/google/emails/reply \
+  -H "Content-Type: application/json" \
+  -d '{
+    "thread_id": "thread_123",
+    "reply": {
+      "from": "maintainer@higress.io",
+      "content": "这个问题是由于AI Gateway的默认超时设置过短导致的。建议将timeout配置从30秒增加到120秒，并在配置文件中添加retry机制。",
+      "timestamp": "2024-01-15T10:30:00Z"
+    }
+  }'
+```
+
+##### 6. Agent结合LLM和DeepWiki进行深度分析
+```bash
+# Agent使用LLM分析维护者回复
+curl -X POST http://localhost:8080/api/v1/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "question",
+    "content": "分析维护者回复：这个问题是由于AI Gateway的默认超时设置过短导致的。建议将timeout配置从30秒增加到120秒，并在配置文件中添加retry机制。请提供具体的配置修改建议和代码示例。",
+    "author": "agent"
+  }'
+```
+
+```bash
+# Agent使用DeepWiki检索相关知识
+curl -X POST http://localhost:8080/api/v1/mcp/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "server_label": "deepwiki",
+    "input": "AI Gateway timeout configuration retry mechanism",
+    "repo_name": "alibaba/higress"
+  }'
+```
+
+##### 7. Agent生成完整的Issue回复
+```bash
+# Agent生成Issue回复
+curl -X POST http://localhost:8080/api/google/issues/123/reply \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "感谢维护者的回复！\n\n根据维护者的建议和DeepWiki检索结果，这个问题可以通过以下方式解决：\n\n## 解决方案\n\n### 1. 修改超时配置\n在 `higress-config.yaml` 中修改AI Gateway配置：\n\n```yaml\nai:\n  gateway:\n    timeout: 120s  # 从30s增加到120s\n    retry:\n      max_attempts: 3\n      backoff:\n        initial_interval: 1s\n        max_interval: 10s\n```\n\n### 2. 添加重试机制\n在AI Gateway插件配置中添加重试逻辑：\n\n```yaml\nplugins:\n  - name: ai-gateway\n    config:\n      timeout: 120s\n      retry:\n        enabled: true\n        max_attempts: 3\n```\n\n### 3. 监控和日志\n建议添加以下监控指标：\n- AI Gateway请求超时次数\n- 重试成功率\n- 平均响应时间\n\n## 测试建议\n1. 使用GPT-4模型进行压力测试\n2. 验证超时配置是否生效\n3. 检查重试机制是否正常工作\n\n这个问题将在配置更新后得到解决。",
+    "analysis": {
+      "is_resolved": true,
+      "action": "close",
+      "summary": "问题已解决，提供了完整的配置修改方案"
+    }
+  }'
+```
+
+##### 8. 更新Issue状态
+```bash
+# 更新Issue状态为已解决
+curl -X PUT http://localhost:8080/api/google/issues/123/status \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "resolved"
+  }'
+```
+
+#### 配置Google API
+在 `configs/google_config.yaml` 中配置Google API：
+
+```yaml
+google:
+  gmail:
+    credentials_file: "credentials.json"  # 服务账号凭证文件
+    token_file: "token.json"             # 访问令牌文件
+    group_email: "maintainers@higress.io" # 维护者邮件组
+    scopes:                              # 权限范围
+      - "https://www.googleapis.com/auth/gmail.send"
+      - "https://www.googleapis.com/auth/gmail.readonly"
+      - "https://www.googleapis.com/auth/gmail.modify"
+  
+  groups:
+    admin_email: "admin@higress.io"      # 管理员邮箱
+    group_key: "maintainers@higress.io"  # 邮件组标识
+    domain: "higress.io"                 # 域名
+
+email:
+  maintainers:                           # 维护者邮箱列表
+    - "maintainer1@higress.io"
+    - "maintainer2@higress.io"
+    - "maintainer3@higress.io"
+```
+
+#### 特性
+- **智能分析**: 结合LLM和DeepWiki进行深度分析
+- **自动处理**: 自动识别可解决的问题并处理
+- **邮件集成**: 无缝集成邮件组通信
+- **状态跟踪**: 完整的Issue处理状态跟踪
+- **多源知识**: 结合本地知识库、DeepWiki和LLM
+- **实时监听**: 实时监听邮件变化并处理
+
 ## 项目架构
 
 ### 整体架构
@@ -189,7 +369,8 @@ Community Governance MCP Higress
 │   ├── 响应处理器
 │   ├── 错误处理器
 │   ├── 日志处理器
-│   └── MCP管理器
+│   ├── MCP管理器
+│   └── Google API管理器
 ├── 工具层 (Tools Layer)
 │   ├── 知识库工具
 │   ├── 社区统计工具
@@ -200,11 +381,13 @@ Community Governance MCP Higress
 │   ├── 内存存储
 │   ├── 文件存储
 │   ├── 外部API
-│   └── MCP服务器
+│   ├── MCP服务器
+│   └── Google API服务
 └── 配置层 (Config Layer)
     ├── 应用配置
     ├── API配置
     ├── MCP配置
+    ├── Google API配置
     └── 环境配置
 ```
 
@@ -216,6 +399,14 @@ Community Governance MCP Higress
 
 ### MCP集成流程
 1. **MCP查询** → 2. **服务器连接** → 3. **工具调用** → 4. **响应解析** → 5. **结果返回**
+
+### Google API集成流程
+1. **Issue接收** → 2. **内容分析** → 3. **邮件发送** → 4. **回复监听** → 5. **回复处理** → 6. **Issue回复**
+
+### Issue处理完整流程
+```
+用户提出Issue → Agent分析 → 无法解决 → 发送邮件给维护者 → 维护者回复 → Agent理解回复 → LLM/DeepWiki分析 → 生成Issue回复 → 更新Issue状态
+```
 
 ### 工具集成架构
 ```
@@ -252,11 +443,12 @@ Community Governance MCP Higress
 ├── API配置
 │   ├── OpenAI配置
 │   ├── GitHub配置
-│   └── Google API配置
-├── MCP配置
-│   ├── 服务器列表
-│   ├── 认证配置
-│   └── 工具权限
+│   ├── Google API配置
+│   └── MCP配置
+├── 服务配置
+│   ├── 邮件组配置
+│   ├── 维护者配置
+│   └── 模板配置
 └── 环境配置
     ├── 网络代理
     ├── 超时设置
@@ -348,6 +540,28 @@ curl -X POST http://localhost:8080/api/v1/analyze \
   }'
 ```
 
+#### Google API集成
+```bash
+# 处理GitHub Issue
+curl -X POST http://localhost:8080/api/google/issues \
+  -H "Content-Type: application/json" \
+  -d '{
+    "issue_id": "123",
+    "issue_url": "https://github.com/alibaba/higress/issues/123",
+    "issue_title": "Bug: Connection timeout in AI Gateway",
+    "issue_content": "When using AI Gateway with large models, connections frequently timeout after 30 seconds."
+  }'
+
+# 获取待处理Issue列表
+curl -X GET http://localhost:8080/api/google/issues?status=pending
+
+# 同步邮件
+curl -X POST http://localhost:8080/api/google/emails/sync
+
+# 获取统计信息
+curl -X GET http://localhost:8080/api/google/stats
+```
+
 ## 配置说明
 
 ### 基础配置
@@ -378,6 +592,31 @@ mcp:
       server_label: "deepwiki"
       require_approval: "never"
       allowed_tools: ["ask_question", "read_wiki_structure"]
+```
+
+### Google API配置
+```yaml
+# configs/google_config.yaml
+google:
+  gmail:
+    credentials_file: "credentials.json"  # 服务账号凭证文件
+    token_file: "token.json"             # 访问令牌文件
+    group_email: "maintainers@higress.io" # 维护者邮件组
+    scopes:                              # 权限范围
+      - "https://www.googleapis.com/auth/gmail.send"
+      - "https://www.googleapis.com/auth/gmail.readonly"
+      - "https://www.googleapis.com/auth/gmail.modify"
+  
+  groups:
+    admin_email: "admin@higress.io"      # 管理员邮箱
+    group_key: "maintainers@higress.io"  # 邮件组标识
+    domain: "higress.io"                 # 域名
+
+email:
+  maintainers:                           # 维护者邮箱列表
+    - "maintainer1@higress.io"
+    - "maintainer2@higress.io"
+    - "maintainer3@higress.io"
 ```
 
 ### 网络代理配置
@@ -426,7 +665,14 @@ mcp:
         Authorization: "${NEW_SERVER_API_KEY}"
 ```
 
-2. **使用API**
+2. **测试连接**
+```bash
+curl -X POST http://localhost:8080/api/v1/mcp/tools \
+  -H "Content-Type: application/json" \
+  -d '{"server_label": "new_server"}'
+```
+
+3. **使用API**
 ```bash
 curl -X POST http://localhost:8080/api/v1/mcp/query \
   -H "Content-Type: application/json" \
@@ -434,6 +680,41 @@ curl -X POST http://localhost:8080/api/v1/mcp/query \
     "server_label": "new_server",
     "input": "your query here"
   }'
+```
+
+### 扩展Google API功能
+
+1. **添加新的邮件模板**
+```yaml
+email:
+  templates:
+    custom_notification:
+      subject: "[Custom] {issue_title}"
+      content: |
+        自定义邮件模板内容
+        - Issue ID: {issue_id}
+        - 标题: {issue_title}
+        - 内容: {issue_content}
+```
+
+2. **添加新的维护者**
+```yaml
+email:
+  maintainers:
+    - "new_maintainer@higress.io"
+```
+
+3. **自定义Issue分析规则**
+```go
+// 在 internal/google/manager.go 中添加自定义分析逻辑
+func (m *GoogleManager) analyzeIssue(content string) (*IssueAnalysis, error) {
+    // 添加自定义分析规则
+    if containsKeywords(content, []string{"custom_keyword"}) {
+        analysis.Priority = "custom"
+        analysis.Tags = append(analysis.Tags, "custom_tag")
+    }
+    return analysis, nil
+}
 ```
 
 ### 扩展功能
@@ -452,6 +733,12 @@ curl -X POST http://localhost:8080/api/v1/mcp/query \
    - 在`cmd/agent/main.go`中注册路由
    - 实现处理器方法
    - 添加文档和测试
+
+4. **添加新的Google API功能**
+   - 在`internal/google/`目录下添加新客户端
+   - 在`manager.go`中添加管理逻辑
+   - 在`handler.go`中添加HTTP处理器
+   - 更新配置和文档
 
 ## 测试
 
