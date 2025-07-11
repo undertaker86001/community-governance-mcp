@@ -13,6 +13,7 @@ import (
 	"github.com/community-governance-mcp-higress/internal/agent"
 	"github.com/community-governance-mcp-higress/internal/memory"
 	"github.com/community-governance-mcp-higress/internal/openai"
+	"github.com/community-governance-mcp-higress/internal/mcp"
 	"github.com/community-governance-mcp-higress/tools"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -52,20 +53,20 @@ func (s *Server) setupRoutes() {
 	// API版本组
 	v1 := s.router.Group("/api/v1")
 	{
-		// 处理问题
+		// 核心功能路由
 		v1.POST("/process", s.handleProcess)
-
-		// 问题分析
 		v1.POST("/analyze", s.handleAnalyze)
-
-		// 社区统计
 		v1.GET("/stats", s.handleStats)
-
-		// 健康检查
 		v1.GET("/health", s.handleHealth)
-
-		// 获取配置信息
 		v1.GET("/config", s.handleConfig)
+
+		// MCP集成路由
+		mcp := v1.Group("/mcp")
+		{
+			mcp.POST("/query", s.handleMCPQuery)
+			mcp.POST("/tools", s.handleMCPListTools)
+			mcp.POST("/call", s.handleMCPCallTool)
+		}
 	}
 
 	// 注册记忆组件路由
@@ -246,6 +247,107 @@ func (s *Server) validateRequest(request *agent.ProcessRequest) error {
 	}
 
 	return nil
+}
+
+// handleMCPQuery 处理MCP查询请求
+func (s *Server) handleMCPQuery(c *gin.Context) {
+	var request mcp.QueryRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "请求参数错误",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 创建MCP客户端
+	mcpClient := mcp.NewClient(30 * time.Second)
+
+	// 执行查询
+	response, err := mcpClient.Query(c.Request.Context(), &request)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "MCP查询失败",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	if response.Error != "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": response.Error,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"output": response.Output,
+	})
+}
+
+// handleMCPListTools 处理MCP工具列表请求
+func (s *Server) handleMCPListTools(c *gin.Context) {
+	var request mcp.ListToolsRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "请求参数错误",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 创建MCP客户端
+	mcpClient := mcp.NewClient(30 * time.Second)
+
+	// 获取工具列表
+	response, err := mcpClient.ListTools(c.Request.Context(), &request)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "获取工具列表失败",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"tools": response.Tools,
+	})
+}
+
+// handleMCPCallTool 处理MCP工具调用请求
+func (s *Server) handleMCPCallTool(c *gin.Context) {
+	var request mcp.CallToolRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "请求参数错误",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 创建MCP客户端
+	mcpClient := mcp.NewClient(30 * time.Second)
+
+	// 调用工具
+	response, err := mcpClient.CallTool(c.Request.Context(), &request)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "工具调用失败",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	if response.Error != "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": response.Error,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"output": response.Output,
+	})
 }
 
 // Start 启动服务器

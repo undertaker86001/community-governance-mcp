@@ -216,6 +216,24 @@ type AgentConfig struct {
 	Logging   LoggingConfig    `json:"logging"`   // 日志配置
 	Memory    MemoryConfig     `json:"memory"`    // 记忆组件配置
 	Network   NetworkConfig    `json:"network"`   // 网络配置
+	MCP       MCPConfig        `json:"mcp"`       // MCP集成配置
+}
+
+// MCPConfig MCP集成配置
+type MCPConfig struct {
+	Enabled string                 `json:"enabled"` // 是否启用MCP
+	Timeout string                 `json:"timeout"` // 超时时间
+	Servers map[string]MCPServer  `json:"servers"` // MCP服务器配置
+}
+
+// MCPServer MCP服务器配置
+type MCPServer struct {
+	Enabled         bool              `json:"enabled"`         // 是否启用
+	ServerURL       string            `json:"server_url"`      // 服务器URL
+	ServerLabel     string            `json:"server_label"`    // 服务器标签
+	RequireApproval string            `json:"require_approval"` // 审批要求
+	AllowedTools    []string          `json:"allowed_tools"`   // 允许的工具
+	Headers         map[string]string `json:"headers"`         // 请求头
 }
 
 // AgentInfo Agent基础信息

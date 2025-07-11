@@ -119,4 +119,32 @@ memory:
 network:
   proxy_enabled: false  # 是否启用代理
   proxy_url: ""        # 代理URL (例如: http://proxy.example.com:8080)
-  proxy_type: "http"   # 代理类型 (http, https, socks5) 
+  proxy_type: "http"   # 代理类型 (http, https, socks5)
+
+# MCP集成配置
+mcp:
+  enabled: true
+  timeout: "30s"
+  servers:
+    deepwiki:
+      enabled: true
+      server_url: "https://mcp.deepwiki.com/mcp"
+      server_label: "deepwiki"
+      require_approval: "never"
+      allowed_tools: ["ask_question", "read_wiki_structure"]
+    
+    stripe:
+      enabled: false
+      server_url: "https://mcp.stripe.com"
+      server_label: "stripe"
+      require_approval: "always"
+      headers:
+        Authorization: "${STRIPE_API_KEY}"
+    
+    shopify:
+      enabled: false
+      server_url: "https://mcp.shopify.com"
+      server_label: "shopify"
+      require_approval: "always"
+      headers:
+        Authorization: "${SHOPIFY_API_KEY}" 

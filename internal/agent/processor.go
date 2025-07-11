@@ -15,21 +15,23 @@ import (
 	"encoding/json"
 	"io"
 	"github.com/community-governance-mcp-higress/tools"
+	"github.com/community-governance-mcp-higress/internal/mcp"
+	"github.com/community-governance-mcp-higress/internal/model"
 )
 
-// Processor Agent处理器
+// Processor 处理器
 type Processor struct {
-	openaiClient      *openai.Client
-	memoryManager     *memory.Manager
-	retrievalManager  *RetrievalManager
-	networkHandler    *NetworkLimitationHandler
-	fallbackStrategy  *FallbackStrategy
-	logger            *logrus.Logger
-	Config            *AgentConfig
+	openaiClient    *openai.Client
+	config          *model.AgentConfig
+	logger          *logrus.Logger
+	mcpManager      *mcp.Manager
+	retrievalManager *RetrievalManager
+	memoryManager   *memory.Manager
+	fallbackStrategy *FallbackStrategy
 }
 
 // NewProcessor 创建新的处理器
-func NewProcessor(openaiClient *openai.Client, config *AgentConfig) *Processor {
+func NewProcessor(openaiClient *openai.Client, config *model.AgentConfig) *Processor {
 	// 创建记忆管理器
 	memoryConfig := memory.MemoryConfig{
 		WorkingMemoryMaxItems: config.Memory.WorkingMemoryMaxItems,
@@ -41,20 +43,34 @@ func NewProcessor(openaiClient *openai.Client, config *AgentConfig) *Processor {
 	}
 	memoryManager := memory.NewManager(memoryConfig)
 
-	// 创建检索管理器，传递网络配置
+	// 创建检索管理器
 	retrievalManager := NewRetrievalManager(&config.Network)
-	networkHandler := NewNetworkLimitationHandler()
+
+	// 创建备用策略
 	fallbackStrategy := NewFallbackStrategy()
 
-	return &Processor{
-		openaiClient:     openaiClient,
-		memoryManager:    memoryManager,
+	// 创建MCP管理器
+	mcpManager := mcp.NewManager(&config.MCP)
+
+	// 创建处理器
+	processor := &Processor{
+		openaiClient:    openaiClient,
+		config:          config,
+		logger:          logrus.New(),
+		mcpManager:      mcpManager,
 		retrievalManager: retrievalManager,
-		networkHandler:   networkHandler,
+		memoryManager:   memoryManager,
 		fallbackStrategy: fallbackStrategy,
-		logger:           logrus.New(),
-		Config:           config,
 	}
+
+	// 设置日志级别
+	level, err := logrus.ParseLevel(config.Logging.Level)
+	if err != nil {
+		level = logrus.InfoLevel
+	}
+	processor.logger.SetLevel(level)
+
+	return processor
 }
 
 // ProcessQuestion 处理用户问题
@@ -490,7 +506,7 @@ func (p *Processor) retrieveKnowledge(ctx context.Context, question *Question) (
 	var allSources []KnowledgeItem
 
 	// 1. 检索本地知识库
-	if p.Config.Knowledge.Enabled {
+	if p.config.Knowledge.Enabled {
 		localSources, err := p.retrieveLocalKnowledge(ctx, question)
 		if err != nil {
 			p.logger.WithError(err).Warn("本地知识库检索失败")
@@ -508,7 +524,7 @@ func (p *Processor) retrieveKnowledge(ctx context.Context, question *Question) (
 	}
 
 	// 3. 检索DeepWiki
-	if p.Config.DeepWiki.Enabled {
+	if p.config.DeepWiki.Enabled {
 		deepwikiSources, err := p.retrieveDeepWiki(ctx, question)
 		if err != nil {
 			p.logger.WithError(err).Warn("DeepWiki检索失败")
@@ -524,8 +540,8 @@ func (p *Processor) retrieveKnowledge(ctx context.Context, question *Question) (
 	p.sortByRelevance(allSources)
 
 	// 限制返回数量
-	if len(allSources) > p.Config.Fusion.MaxSources {
-		allSources = allSources[:p.Config.Fusion.MaxSources]
+	if len(allSources) > p.config.Fusion.MaxSources {
+		allSources = allSources[:p.config.Fusion.MaxSources]
 	}
 
 	p.logger.WithField("sources_count", len(allSources)).Info("知识检索完成")
@@ -537,7 +553,7 @@ func (p *Processor) retrieveLocalKnowledge(ctx context.Context, question *Questi
 	p.logger.Info("开始检索本地知识库")
 	
 	// 使用现有的知识库工具
-	knowledgeBase := tools.NewKnowledgeBase(p.Config.OpenAI.APIKey)
+	knowledgeBase := tools.NewKnowledgeBase(p.config.OpenAI.APIKey)
 	
 	// 构建查询
 	query := question.Title + " " + question.Content
@@ -720,42 +736,38 @@ func (p *Processor) retrieveDeepWiki(ctx context.Context, question *Question) ([
 	defer cancel()
 	
 	// 检查DeepWiki配置
-	if !p.Config.DeepWiki.Enabled {
+	if !p.config.DeepWiki.Enabled {
 		p.logger.Info("DeepWiki未启用，跳过检索")
 		return []KnowledgeItem{}, nil
 	}
 	
-	// 尝试通过MCP服务调用DeepWiki
-	items, err := p.retrieveFromDeepWikiMCP(timeoutCtx, question)
-	if err == nil && len(items) > 0 {
-		return items, nil
+	// 使用MCP管理器进行查询
+	items, err := p.mcpManager.QueryWithFallback(
+		timeoutCtx,
+		"deepwiki",
+		question.Title+" "+question.Content,
+		"modelcontextprotocol/modelcontextprotocol", // 默认仓库，可根据需要调整
+		func() ([]model.KnowledgeItem, error) {
+			// 备用方案：直接HTTP调用
+			httpItems, err := p.retrieveFromDeepWikiHTTP(timeoutCtx, question)
+			if err != nil {
+				// 如果HTTP调用也失败，使用备用数据
+				fallbackData := p.fallbackStrategy.GetDeepWikiFallbackData()
+				items := p.convertFallbackToKnowledgeItems(question, fallbackData, KnowledgeSourceDeepWiki)
+				return items, nil
+			}
+			return httpItems, nil
+		},
+	)
+	
+	if err != nil {
+		p.logger.WithError(err).Warn("DeepWiki检索失败，使用备用数据")
+		fallbackData := p.fallbackStrategy.GetDeepWikiFallbackData()
+		items = p.convertFallbackToKnowledgeItems(question, fallbackData, KnowledgeSourceDeepWiki)
 	}
 	
-	// 如果MCP调用失败，尝试直接HTTP调用
-	items, err = p.retrieveFromDeepWikiHTTP(timeoutCtx, question)
-	if err == nil && len(items) > 0 {
-		return items, nil
-	}
-	
-	// 如果所有方法都失败，使用备用数据
-	fallbackData := p.fallbackStrategy.GetDeepWikiFallbackData()
-	items = p.convertFallbackToKnowledgeItems(question, fallbackData, KnowledgeSourceDeepWiki)
-	p.logger.Info("使用DeepWiki备用数据")
+	p.logger.WithField("results_count", len(items)).Info("DeepWiki检索完成")
 	return items, nil
-}
-
-// retrieveFromDeepWikiMCP 通过MCP服务检索DeepWiki
-func (p *Processor) retrieveFromDeepWikiMCP(ctx context.Context, question *Question) ([]KnowledgeItem, error) {
-	// 构建MCP请求
-	_ = map[string]interface{}{
-		"query": question.Title + " " + question.Content,
-		"limit": 5,
-	}
-	
-	// 这里应该调用MCP服务
-	// 由于MCP服务可能不可用，我们返回空结果
-	p.logger.Info("DeepWiki MCP服务暂不可用")
-	return []KnowledgeItem{}, fmt.Errorf("MCP服务不可用")
 }
 
 // retrieveFromDeepWikiHTTP 通过HTTP调用检索DeepWiki
@@ -771,7 +783,7 @@ func (p *Processor) retrieveFromDeepWikiHTTP(ctx context.Context, question *Ques
 	}
 	
 	// 构建请求URL
-	baseURL := p.Config.DeepWiki.Endpoint
+	baseURL := p.config.DeepWiki.Endpoint
 	if baseURL == "" {
 		baseURL = "https://api.deepwiki.com" // 默认端点
 	}
@@ -788,8 +800,8 @@ func (p *Processor) retrieveFromDeepWikiHTTP(ctx context.Context, question *Ques
 	// 设置请求头
 	req.Header.Set("User-Agent", "HigressBot/1.0")
 	req.Header.Set("Accept", "application/json")
-	if p.Config.DeepWiki.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+p.Config.DeepWiki.APIKey)
+	if p.config.DeepWiki.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.config.DeepWiki.APIKey)
 	}
 	
 	// 发送请求
